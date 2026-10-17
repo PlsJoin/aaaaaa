@@ -2,59 +2,81 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Traffic Flow</title>
 <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  margin: 0;
   background: #1a1a1a;
   color: #eee;
   font-family: sans-serif;
   overflow: hidden;
+  touch-action: none;
+  height: 100vh;
+  width: 100vw;
 }
 #ui {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
-  background: rgba(0,0,0,0.7);
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 14px;
+  background: rgba(0,0,0,0.85);
+  padding: 10px 12px;
+  font-size: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+#ui .info {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
 }
 #ui button {
-  margin: 4px 4px 4px 0;
-  padding: 6px 12px;
-  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 15px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #444;
   color: #fff;
+  cursor: pointer;
+  min-height: 44px;
+  flex: 1 1 auto;
 }
 #ui button.active {
   background: #2a7;
 }
 #ui button:disabled {
   opacity: 0.4;
-  cursor: not-allowed;
 }
 #msg {
-  margin-top: 8px;
+  width: 100%;
   font-weight: bold;
+  min-height: 20px;
+  font-size: 14px;
 }
 canvas {
   display: block;
   background: #222;
-  cursor: crosshair;
+  position: absolute;
+  top: 0;
+  left: 0;
+  touch-action: none;
 }
 </style>
 </head>
 <body>
 <div id="ui">
-  <div>予算: <span id="budget">5000</span></div>
-  <div>平均速度: <span id="avgSpeed">-</span></div>
-  <div>クリアまで: <span id="clearTime">0</span>秒</div>
+  <div class="info">
+    <span>予算: <b id="budget">5000</b></span>
+    <span>平均速度: <b id="avgSpeed">-</b></span>
+    <span>クリア: <b id="clearTime">0</b>秒</span>
+  </div>
   <button id="btnRoad" class="active">道を描く</button>
-  <button id="btnLight">信号を置く (300)</button>
+  <button id="btnLight">信号 (300)</button>
   <button id="btnStart">開始</button>
   <button id="btnReset">リセット</button>
   <div id="msg"></div>
@@ -71,9 +93,11 @@ const btnRoad = document.getElementById('btnRoad');
 const btnLight = document.getElementById('btnLight');
 const btnStart = document.getElementById('btnStart');
 const btnReset = document.getElementById('btnReset');
+const ui = document.getElementById('ui');
 
-let W, H;
+let W, H, uiHeight;
 function resize() {
+  uiHeight = ui.offsetHeight;
   W = canvas.width = window.innerWidth;
   H = canvas.height = window.innerHeight;
 }
@@ -94,7 +118,7 @@ let smoothTimer = 0;
 let lastTime = 0;
 const ROAD_COST_PER_PX = 0.8;
 const LIGHT_COST = 300;
-const NODE_MERGE_DIST = 18;
+const NODE_MERGE_DIST = 22;
 const CAR_SPAWN_INTERVAL = 1.2;
 let spawnTimer = 0;
 const MAX_CARS = 40;
@@ -124,9 +148,27 @@ btnStart.onclick = () => {
 };
 btnReset.onclick = () => location.reload();
 
-canvas.addEventListener('mousedown', e => {
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  let clientX, clientY;
+  if (e.touches && e.touches.length) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (e.changedTouches && e.changedTouches.length) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  } else {
+    clientX = e.clientX;
+    clientY = e.clientY;
+  }
+  return { x: clientX - r.left, y: clientY - r.top };
+}
+
+function startDraw(e) {
   if (running) return;
+  e.preventDefault();
   const p = getPos(e);
+  if (p.y < uiHeight) return;
   if (mode === 'road') {
     drawing = true;
     currentStroke = [p];
@@ -139,17 +181,25 @@ canvas.addEventListener('mousedown', e => {
     budget -= LIGHT_COST;
     updateBudget();
   }
-});
-canvas.addEventListener('mousemove', e => {
+}
+
+function moveDraw(e) {
   if (!drawing || running) return;
+  e.preventDefault();
   const p = getPos(e);
+  if (p.y < uiHeight) return;
   const last = currentStroke[currentStroke.length - 1];
-  if (dist(last, p) > 6) currentStroke.push(p);
-});
-canvas.addEventListener('mouseup', () => {
+  if (dist(last, p) > 5) currentStroke.push(p);
+}
+
+function endDraw(e) {
   if (!drawing || running) return;
+  e.preventDefault();
   drawing = false;
-  if (currentStroke.length < 2) return;
+  if (currentStroke.length < 2) {
+    currentStroke = [];
+    return;
+  }
   let len = 0;
   for (let i = 1; i < currentStroke.length; i++) {
     len += dist(currentStroke[i - 1], currentStroke[i]);
@@ -165,7 +215,11 @@ canvas.addEventListener('mouseup', () => {
   roads.push(currentStroke.slice());
   currentStroke = [];
   msgEl.textContent = '道を追加（消費: ' + cost + '）';
-});
+}
+
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', moveDraw);
+canvas.addEventListener('mouseup', endDraw);
 canvas.addEventListener('mouseleave', () => {
   if (drawing) {
     drawing = false;
@@ -173,10 +227,11 @@ canvas.addEventListener('mouseleave', () => {
   }
 });
 
-function getPos(e) {
-  const r = canvas.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
+canvas.addEventListener('touchstart', startDraw, { passive: false });
+canvas.addEventListener('touchmove', moveDraw, { passive: false });
+canvas.addEventListener('touchend', endDraw, { passive: false });
+canvas.addEventListener('touchcancel', endDraw, { passive: false });
+
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -266,7 +321,7 @@ function dijkstra(start, end) {
       if (e.a === u) v = e.b;
       else if (e.b === u) v = e.a;
       if (v === -1) return;
-      const lightSlow = lights.some(l => dist(l, nodes[v]) < 25 && !l.green) ? 40 : 0;
+      const lightSlow = lights.some(l => dist(l, nodes[v]) < 30 && !l.green) ? 50 : 0;
       const jamFactor = 1 + e.cars * 0.35;
       const cost = e.length * jamFactor + lightSlow;
       if (distArr[u] + cost < distArr[v]) {
@@ -318,7 +373,7 @@ function updateCars(dt) {
     if (edge && edge.cars > JAM_THRESHOLD) {
       spd *= Math.max(0.25, 1 - (edge.cars - JAM_THRESHOLD) * 0.18);
     }
-    const light = lights.find(l => dist(l, b) < 28);
+    const light = lights.find(l => dist(l, b) < 32);
     if (light && !light.green) {
       spd = 0;
     }
@@ -360,7 +415,7 @@ function draw() {
   roads.forEach(stroke => {
     ctx.beginPath();
     ctx.strokeStyle = '#555';
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 16;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     stroke.forEach((p, i) => {
@@ -372,7 +427,7 @@ function draw() {
   if (currentStroke.length > 1) {
     ctx.beginPath();
     ctx.strokeStyle = '#888';
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 16;
     ctx.lineCap = 'round';
     currentStroke.forEach((p, i) => {
       if (i === 0) ctx.moveTo(p.x, p.y);
@@ -385,8 +440,8 @@ function draw() {
       const a = nodes[e.a];
       const b = nodes[e.b];
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255,80,80,0.5)';
-      ctx.lineWidth = 16;
+      ctx.strokeStyle = 'rgba(255,80,80,0.55)';
+      ctx.lineWidth = 18;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
@@ -395,7 +450,7 @@ function draw() {
   lights.forEach(l => {
     ctx.beginPath();
     ctx.fillStyle = l.green ? '#2f8' : '#f44';
-    ctx.arc(l.x, l.y, 10, 0, Math.PI * 2);
+    ctx.arc(l.x, l.y, 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 2;
@@ -405,7 +460,7 @@ function draw() {
     const p = getCarPos(car);
     ctx.beginPath();
     ctx.fillStyle = car.speed < 20 ? '#f66' : '#4af';
-    ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
     ctx.fill();
   });
 }
