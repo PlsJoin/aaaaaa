@@ -3,541 +3,482 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Traffic Flow</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#18212a;color:#f4f7fa;font-family:Arial,"Noto Sans JP",sans-serif}
-header{padding:13px 16px;background:#222d38}
-h1{font-size:21px;margin:0 0 4px}
-header p{margin:0;color:#aebdca;font-size:12px}
-.toolbar{display:flex;gap:7px;flex-wrap:wrap;padding:10px 12px;background:#202a34}
-button{border:1px solid #506170;background:#303e4b;color:white;border-radius:7px;padding:9px 12px;font-size:12px;cursor:pointer}
-button.active{background:#187dc1;border-color:#6bc2ff}
-#stats{display:flex;gap:15px;flex-wrap:wrap;padding:10px 13px;background:#19232d;font-size:12px}
-#stats b{color:#8fd1ff}
-#notice{padding:8px 13px;color:#bdcbd7;font-size:12px;min-height:32px}
-#stage{height:calc(100dvh - 230px);min-height:340px}
-canvas{display:block;width:100%;height:100%;touch-action:none}
-@media(max-width:600px){
-header{padding:10px 12px}
-.toolbar{padding:8px;gap:5px}
-button{padding:9px;font-size:11px}
-#stats{gap:9px;padding:8px;font-size:11px}
-#stage{height:calc(100dvh - 275px)}
-}
+:root{color-scheme:dark}
+body{margin:0;background:#101419;color:#edf2f7;font-family:Arial,"Noto Sans JP",sans-serif}
+header{padding:16px 18px;background:#171e26;border-bottom:1px solid #303b47}
+h1{font-size:22px;margin:0 0 5px}
+header p{margin:0;color:#aeb9c5;font-size:13px}
+main{max-width:1100px;margin:auto;padding:14px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{border:1px solid #485666;background:#202a35;color:#edf2f7;border-radius:8px;padding:10px 13px;font-size:14px;cursor:pointer}
+button.active{background:#176b9c;border-color:#4bb5f0}
+button:hover{filter:brightness(1.15)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.stat{background:#19212a;border:1px solid #303b47;border-radius:9px;padding:10px}
+.stat span{display:block;font-size:12px;color:#aeb9c5;margin-bottom:5px}
+.stat strong{font-size:20px}
+.canvas-wrap{position:relative;background:#18231f;border:1px solid #394a40;border-radius:10px;overflow:hidden}
+canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
+.hint{font-size:12px;line-height:1.7;color:#aeb9c5;margin:10px 2px}
+.legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:#c6d0da;margin-top:10px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+@media(max-width:600px){main{padding:9px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}button{flex:1}.stat strong{font-size:18px}h1{font-size:20px}}
 </style>
 </head>
 <body>
 <header>
 <h1>Traffic Flow</h1>
-<p>道路を設計し、中間地点を経由する交通をスムーズに流そう。</p>
+<p>道路をつなぎ、車を安全にゴールへ導こう。</p>
 </header>
-
+<main>
 <div class="toolbar">
-<button id="direct" class="active">直線道路</button>
-<button id="free">フリーハンド</button>
-<button id="normal">通常操作</button>
+<button id="straight" class="active">直線道路</button>
+<button id="freehand">フリーハンド</button>
+<button id="run">運転開始</button>
 <button id="undo">道路を1本戻す</button>
-<button id="reset">やり直す</button>
+<button id="reset">リセット</button>
 </div>
-
-<div id="stats">
-<div>走行中 <b id="count">0</b> 台</div>
-<div>到着 <b id="arrived">0</b> 台</div>
-<div>平均速度 <b id="speed">0</b> km/h</div>
-<div>混雑区間 <b id="traffic">0</b></div>
-<div>建設費 <b id="cost">0</b></div>
+<div class="stats">
+<div class="stat"><span>走行中の車</span><strong id="moving">0</strong></div>
+<div class="stat"><span>ゴール到着</span><strong id="arrived">0</strong></div>
+<div class="stat"><span>平均速度</span><strong id="speed">0</strong></div>
+<div class="stat"><span>渋滞区間</span><strong id="traffic">0</strong></div>
 </div>
-
-<div id="notice">直線道路を選択中。道路の始点と終点を順番にタップして建設。</div>
-<div id="stage"><canvas id="map"></canvas></div>
-
+<div class="canvas-wrap">
+<canvas id="game" width="1000" height="600"></canvas>
+</div>
+<div class="legend">
+<span><i class="dot" style="background:#626c76"></i>通常</span>
+<span><i class="dot" style="background:#f2a23a"></i>混雑</span>
+<span><i class="dot" style="background:#e94c4c"></i>渋滞</span>
+<span>● START　 ◆ 中間地点　 ● GOAL</span>
+</div>
+<p class="hint">直線道路は2か所をタップして作成。フリーハンドはドラッグして描画。道路同士を交差させると接続されます。中間地点はリセット時にランダムで配置されます。</p>
+</main>
 <script>
-const canvas=document.querySelector("#map");
+const canvas=document.getElementById("game");
 const ctx=canvas.getContext("2d");
+const W=1000,H=600;
 const $=id=>document.getElementById(id);
+let roads=[],cars=[],nodes=[],edges=[],running=false,mode="straight";
+let firstPoint=null,stroke=[],drawing=false,lastTime=0,spawnTimer=0,arrived=0;
+let mid={x:500,y:180};
+const START={x:55,y:300};
+const GOAL={x:945,y:300};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const lerp=(a,b,t)=>a+(b-a)*t;
 
-let W=0,H=0,D=1;
-let roads=[],nodes=[],edges=[],cars=[];
-let mode="direct",drawing=false,firstPoint=null,strokePoints=[];
-let last=0,spawnTimer=0,cost=0,arrived=0;
-let lastSpawn=0;
-
-const START={x:.055,y:.5};
-const MID={x:.5,y:.25};
-const GOAL={x:.945,y:.5};
-
-function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
-function clamp(n,a,b){return Math.max(a,Math.min(b,n))}
-function screen(p){return{x:p.x*W,y:p.y*H}}
-function px(r){return{x1:r.x1*W,y1:r.y1*H,x2:r.x2*W,y2:r.y2*H}}
-
-function pointLine(p,a,b){
-const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy;
-if(!l)return dist(p,a);
-const t=clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/l,0,1);
-return dist(p,{x:a.x+t*dx,y:a.y+t*dy});
+function randomMid(){
+  mid={x:280+Math.random()*440,y:100+Math.random()*400};
+  if(Math.abs(mid.y-START.y)<75)mid.y=mid.y<300?mid.y-80:mid.y+80;
+  mid.x=clamp(mid.x,230,770);
+  mid.y=clamp(mid.y,75,525);
 }
 
-function intersect(a,b){
-const den=(a.x1-a.x2)*(b.y1-b.y2)-(a.y1-a.y2)*(b.x1-b.x2);
-if(Math.abs(den)<.001)return null;
-const t=((a.x1-b.x1)*(b.y1-b.y2)-(a.y1-b.y1)*(b.x1-b.x2))/den;
-const u=-((a.x1-a.x2)*(a.y1-b.y1)-(a.y1-a.y2)*(a.x1-b.x1))/den;
-if(t<-.0001||t>1.0001||u<-.0001||u>1.0001)return null;
-return{x:a.x1+t*(a.x2-a.x1),y:a.y1+t*(a.y2-a.y1),t,u};
+function resizeCanvas(){
+  const rect=canvas.getBoundingClientRect();
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=W*dpr;
+  canvas.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+window.addEventListener("resize",resizeCanvas);
+
+function screenPoint(e){
+  const r=canvas.getBoundingClientRect();
+  return {
+    x:clamp((e.clientX-r.left)*W/r.width,0,W),
+    y:clamp((e.clientY-r.top)*H/r.height,0,H)
+  };
+}
+function pointSegment(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const len=dx*dx+dy*dy;
+  const t=len?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/len,0,1):0;
+  const q={x:a.x+dx*t,y:a.y+dy*t};
+  return {point:q,t,d:dist(p,q)};
+}
+function intersection(a,b,c,d){
+  const den=(a.x-b.x)*(c.y-d.y)-(a.y-b.y)*(c.x-d.x);
+  if(Math.abs(den)<0.0001)return null;
+  const t=((a.x-c.x)*(c.y-d.y)-(a.y-c.y)*(c.x-d.x))/den;
+  const u=-((a.x-b.x)*(a.y-c.y)-(a.y-b.y)*(a.x-c.x))/den;
+  if(t<0.001||t>0.999||u<0.001||u>0.999)return null;
+  return {x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y),t,u};
+}
+function snapPoint(p){
+  let best=p,bestD=18;
+  for(const n of nodes){
+    const d=dist(p,n);
+    if(d<bestD){bestD=d;best=n}
+  }
+  for(const road of roads){
+    for(let i=0;i<road.length-1;i++){
+      const q=pointSegment(p,road[i],road[i+1]);
+      if(q.d<bestD){bestD=q.d;best=q.point}
+    }
+  }
+  return {x:best.x,y:best.y};
+}
+function addRoad(points){
+  if(points.length<2)return;
+  const cleaned=[points[0]];
+  for(let i=1;i<points.length;i++){
+    if(dist(cleaned[cleaned.length-1],points[i])>5)cleaned.push(points[i]);
+  }
+  if(cleaned.length<2)return;
+  cleaned[0]=snapPoint(cleaned[0]);
+  cleaned[cleaned.length-1]=snapPoint(cleaned[cleaned.length-1]);
+  roads.push(cleaned);
+  rebuildGraph();
+  cars=[];
+  spawnTimer=0;
+  draw();
+}
+function smoothStroke(points){
+  if(points.length<3)return points;
+  const spaced=[points[0]];
+  for(let i=1;i<points.length;i++){
+    const a=spaced[spaced.length-1],b=points[i];
+    const d=dist(a,b);
+    const count=Math.ceil(d/5);
+    for(let j=1;j<=count;j++){
+      const t=j/count;
+      spaced.push({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)});
+    }
+  }
+  let smoothed=spaced;
+  for(let pass=0;pass<2;pass++){
+    const out=[smoothed[0]];
+    for(let i=1;i<smoothed.length-1;i++){
+      out.push({
+        x:smoothed[i-1].x*.25+smoothed[i].x*.5+smoothed[i+1].x*.25,
+        y:smoothed[i-1].y*.25+smoothed[i].y*.5+smoothed[i+1].y*.25
+      });
+    }
+    out.push(smoothed[smoothed.length-1]);
+    smoothed=out;
+  }
+  const simplified=[smoothed[0]];
+  let anchor=smoothed[0];
+  for(let i=1;i<smoothed.length-1;i++){
+    if(pointSegment(smoothed[i],anchor,smoothed[i+1]).d>1.8){
+      simplified.push(smoothed[i]);
+      anchor=smoothed[i];
+    }
+  }
+  simplified.push(smoothed[smoothed.length-1]);
+  return simplified;
 }
 
-function resize(){
-const r=canvas.getBoundingClientRect();
-W=r.width;H=r.height;D=Math.min(devicePixelRatio||1,2);
-canvas.width=W*D;canvas.height=H*D;
-ctx.setTransform(D,0,0,D,0,0);
-buildGraph();
+function rebuildGraph(){
+  nodes=[];edges=[];
+  const segments=[];
+  for(let ri=0;ri<roads.length;ri++){
+    const r=roads[ri];
+    for(let i=0;i<r.length-1;i++){
+      if(dist(r[i],r[i+1])>3)segments.push({a:r[i],b:r[i+1],cuts:[{t:0,p:r[i]},{t:1,p:r[i+1]}],ri,i});
+    }
+  }
+  for(let i=0;i<segments.length;i++){
+    for(let j=i+1;j<segments.length;j++){
+      const a=segments[i],b=segments[j];
+      if(a.ri===b.ri&&Math.abs(a.i-b.i)<=1)continue;
+      const hit=intersection(a.a,a.b,b.a,b.b);
+      if(hit){
+        a.cuts.push({t:hit.t,p:hit});
+        b.cuts.push({t:hit.u,p:hit});
+      }
+    }
+  }
+  for(let i=0;i<segments.length;i++){
+    const a=segments[i];
+    for(let j=0;j<segments.length;j++){
+      if(i===j)continue;
+      const b=segments[j];
+      if(a.ri===b.ri&&Math.abs(a.i-b.i)<=1)continue;
+      for(const end of [{t:0,p:a.a},{t:1,p:a.b}]){
+        const q=pointSegment(end.p,b.a,b.b);
+        if(q.d<15&&q.t>.02&&q.t<.98){
+          a.cuts.push(end);
+          b.cuts.push({t:q.t,p:end.p});
+        }
+      }
+    }
+  }
+  function getNode(p){
+    let n=nodes.find(v=>dist(v,p)<5);
+    if(!n){n={x:p.x,y:p.y,id:nodes.length,links:[]};nodes.push(n)}
+    return n;
+  }
+  for(const s of segments){
+    s.cuts.sort((a,b)=>a.t-b.t);
+    const unique=[];
+    for(const c of s.cuts){
+      if(!unique.length||Math.abs(c.t-unique[unique.length-1].t)>.002)unique.push(c);
+    }
+    for(let i=0;i<unique.length-1;i++){
+      const a=getNode(unique[i].p),b=getNode(unique[i+1].p);
+      if(a===b)continue;
+      const length=dist(a,b);
+      if(length<3)continue;
+      const edge={a,b,length,cars:0};
+      edges.push(edge);
+      a.links.push({node:b,edge});
+      b.links.push({node:a,edge});
+    }
+  }
 }
-
-function addRoad(a,b){
-if(dist(a,b)<25)return;
-roads.push({
-x1:clamp(a.x/W,0,1),
-y1:clamp(a.y/H,0,1),
-x2:clamp(b.x/W,0,1),
-y2:clamp(b.y/H,0,1)
-});
-cost+=Math.round(dist(a,b)*.4);
-buildGraph();
-rerouteCars();
+function closestNode(p,max=35){
+  let best=null,d0=max;
+  for(const n of nodes){
+    const d=dist(n,p);
+    if(d<d0){d0=d;best=n}
+  }
+  return best;
 }
-
-function reset(){
-roads=[
-{x1:.055,y1:.5,x2:.17,y2:.5},
-{x1:.5,y1:.25,x2:.5,y2:.34},
-{x1:.83,y1:.5,x2:.945,y2:.5}
-];
-cars=[];
-cost=0;arrived=0;spawnTimer=0;lastSpawn=0;
-firstPoint=null;
-buildGraph();
-setMode("direct");
-$("notice").textContent="START・中間地点・GOALは道路でつながっていません。道路を建設して交通網を完成させよう。";
+function shortestPath(from,to){
+  if(!from||!to)return null;
+  const costs=new Map([[from,0]]),prev=new Map(),open=[from],visited=new Set();
+  while(open.length){
+    open.sort((a,b)=>costs.get(a)-costs.get(b));
+    const n=open.shift();
+    if(visited.has(n))continue;
+    visited.add(n);
+    if(n===to)break;
+    for(const link of n.links){
+      const e=link.edge;
+      const traffic=e.cars||0;
+      const next=costs.get(n)+e.length*(1+traffic*.45);
+      if(next<(costs.get(link.node)??Infinity)){
+        costs.set(link.node,next);
+        prev.set(link.node,{node:n,edge:e});
+        open.push(link.node);
+      }
+    }
+  }
+  if(!costs.has(to))return null;
+  const path=[];
+  let n=to;
+  while(n!==from){
+    const p=prev.get(n);
+    if(!p)return null;
+    path.unshift({edge:p.edge,from:p.node,to:n});
+    n=p.node;
+  }
+  return path;
 }
-
-function buildGraph(){
-nodes=[];edges=[];
-if(!W||!H)return;
-const ss=roads.map(px);
-const cuts=ss.map(s=>[
-{t:0,x:s.x1,y:s.y1},
-{t:1,x:s.x2,y:s.y2}
-]);
-
-function addCut(i,t,p){cuts[i].push({t,x:p.x,y:p.y})}
-
-for(let i=0;i<ss.length;i++){
-for(let j=i+1;j<ss.length;j++){
-const a=ss[i],b=ss[j],hit=intersect(a,b);
-if(hit){
-addCut(i,hit.t,hit);
-addCut(j,hit.u,hit);
-continue;
+function routeForCar(){
+  const s=closestNode(START,45),g=closestNode(GOAL,45);
+  if(!s||!g)return null;
+  const full=shortestPath(s,g);
+  if(!full)return null;
+  const m=closestNode(mid,50);
+  if(!m)return full;
+  const a=shortestPath(s,m),b=shortestPath(m,g);
+  return a&&b?[...a,...b]:full;
 }
-const endsA=[{x:a.x1,y:a.y1,t:0},{x:a.x2,y:a.y2,t:1}];
-const endsB=[{x:b.x1,y:b.y1,t:0},{x:b.x2,y:b.y2,t:1}];
-
-for(const p of endsA){
-if(pointLine(p,{x:b.x1,y:b.y1},{x:b.x2,y:b.y2})<12){
-const dx=b.x2-b.x1,dy=b.y2-b.y1,l=dx*dx+dy*dy;
-if(l){
-const t=clamp(((p.x-b.x1)*dx+(p.y-b.y1)*dy)/l,0,1);
-const q={x:b.x1+t*dx,y:b.y1+t*dy};
-addCut(i,p.t,q);addCut(j,t,q);
-}
-}
-}
-for(const p of endsB){
-if(pointLine(p,{x:a.x1,y:a.y1},{x:a.x2,y:a.y2})<12){
-const dx=a.x2-a.x1,dy=a.y2-a.y1,l=dx*dx+dy*dy;
-if(l){
-const t=clamp(((p.x-a.x1)*dx+(p.y-a.y1)*dy)/l,0,1);
-const q={x:a.x1+t*dx,y:a.y1+t*dy};
-addCut(j,p.t,q);addCut(i,t,q);
-}
-}
-}
-}
-}
-
-function nodeAt(p){
-let n=nodes.find(v=>dist(v,p)<5);
-if(!n){n={x:p.x,y:p.y,links:[]};nodes.push(n)}
-return n;
-}
-
-for(let i=0;i<ss.length;i++){
-const list=cuts[i].sort((a,b)=>a.t-b.t),clean=[];
-for(const p of list){
-if(!clean.length||Math.abs(p.t-clean[clean.length-1].t)>.0005)clean.push(p);
-}
-for(let k=0;k<clean.length-1;k++){
-const a=nodeAt(clean[k]),b=nodeAt(clean[k+1]);
-if(a===b||dist(a,b)<8)continue;
-if(edges.some(e=>(e.a===a&&e.b===b)||(e.a===b&&e.b===a)))continue;
-const e={a,b,length:dist(a,b)};
-edges.push(e);
-a.links.push({node:b,edge:e});
-b.links.push({node:a,edge:e});
-}
-}
-}
-
-function nearestPoint(p){
-let best=null,bd=20;
-for(const n of nodes){
-const d=dist(p,n);
-if(d<bd){best=n;bd=d}
-}
-if(best)return{x:best.x,y:best.y};
-
-for(const r of roads){
-const s=px(r);
-if(pointLine(p,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2})<14){
-const dx=s.x2-s.x1,dy=s.y2-s.y1,l=dx*dx+dy*dy;
-if(l){
-const t=clamp(((p.x-s.x1)*dx+(p.y-s.y1)*dy)/l,0,1);
-return{x:s.x1+t*dx,y:s.y1+t*dy};
-}
-}
-}
-return p;
-}
-
-function nearestNode(p){
-let best=null,bd=22;
-for(const n of nodes){
-const d=dist(n,p);
-if(d<bd){best=n;bd=d}
-}
-return best;
-}
-
-function routeBetween(from,to){
-const a=nearestNode(screen(from)),b=nearestNode(screen(to));
-if(!a||!b)return [];
-const open=[a],prev=new Map(),score=new Map([[a,0]]),closed=new Set();
-
-while(open.length){
-open.sort((x,y)=>score.get(x)-score.get(y));
-const n=open.shift();
-if(closed.has(n))continue;
-closed.add(n);
-if(n===b)break;
-
-for(const l of n.links){
-const load=edgeLoad(l.edge);
-const next=score.get(n)+l.edge.length*(1+load*.65);
-if(next<(score.get(l.node)??Infinity)){
-score.set(l.node,next);
-prev.set(l.node,{node:n,edge:l.edge});
-open.push(l.node);
-}
-}
-}
-if(!score.has(b))return [];
-const path=[];let n=b;
-while(n!==a){
-const p=prev.get(n);
-if(!p)return [];
-path.unshift({from:p.node,to:n,edge:p.edge});
-n=p.node;
-}
-return path;
-}
-
-function fullRoute(){
-const first=routeBetween(START,MID);
-if(!first.length)return [];
-const second=routeBetween(MID,GOAL);
-if(!second.length)return [];
-return first.concat(second);
-}
-
-function rerouteCars(){
-for(const c of cars){
-const p=fullRoute();
-if(p.length){
-c.path=p;c.i=0;c.t=0;
-}
-}
-}
-
 function spawnCar(){
-const path=fullRoute();
-if(!path.length)return;
-cars.push({
-path,i:0,t:0,
-speed:20+Math.random()*4,
-color:["#f5f7fa","#a8d6f5","#e9d5bf","#c7dfd0"][Math.floor(Math.random()*4)],
-lane:Math.random()<.5?-1:1
-});
+  const route=routeForCar();
+  if(!route||!route.length)return;
+  cars.push({
+    path:route,index:0,t:0,speed:48+Math.random()*14,
+    lane:Math.random()<.5?-1:1,color:["#e7f0f7","#e8b45d","#79b8ee","#e67c78","#b7a1ed"][Math.floor(Math.random()*5)]
+  });
 }
-
-function setMode(m){
-mode=m;firstPoint=null;strokePoints=[];
-$("direct").classList.toggle("active",m==="direct");
-$("free").classList.toggle("active",m==="free");
-$("normal").classList.toggle("active",m==="normal");
-const text={
-direct:"直線道路：始点をタップしてから終点をタップ。道路や地点に接続できる。",
-free:"フリーハンド：ドラッグして自由に道路を描く。道路に近づけると接続する。",
-normal:"通常操作：交通の流れを観察する。"
-};
-$("notice").textContent=text[m];
+function edgeTraffic(){
+  for(const e of edges)e.cars=0;
+  for(const c of cars){
+    const step=c.path[c.index];
+    if(step)step.edge.cars++;
+  }
 }
-
-$("direct").onclick=()=>setMode("direct");
-$("free").onclick=()=>setMode("free");
-$("normal").onclick=()=>setMode("normal");
-$("reset").onclick=reset;
-$("undo").onclick=()=>{
-if(roads.length>3){
-roads.pop();cost=0;
-for(const r of roads)cost+=Math.round(Math.hypot((r.x2-r.x1)*W,(r.y2-r.y1)*H)*.4);
-buildGraph();rerouteCars();
-}
-};
-
-function pointer(e){
-const r=canvas.getBoundingClientRect();
-return{x:e.clientX-r.left,y:e.clientY-r.top};
-}
-
-canvas.addEventListener("pointerdown",e=>{
-const p=pointer(e);
-if(mode==="direct"){
-if(!firstPoint){
-firstPoint=nearestPoint(p);
-$("notice").textContent="始点を選択中。道路の終点をタップしてください。";
-}else{
-addRoad(firstPoint,nearestPoint(p));
-firstPoint=null;
-$("notice").textContent="道路を建設しました。必要な道路を追加しよう。";
-}
-}else if(mode==="free"){
-drawing=true;
-strokePoints=[nearestPoint(p)];
-canvas.setPointerCapture(e.pointerId);
-}
-});
-
-canvas.addEventListener("pointermove",e=>{
-if(mode==="free"&&drawing){
-const p=pointer(e);
-if(dist(p,strokePoints[strokePoints.length-1])>9)strokePoints.push(p);
-}
-});
-
-canvas.addEventListener("pointerup",()=>{
-if(mode!=="free"||!drawing)return;
-drawing=false;
-if(strokePoints.length>=2){
-const simplified=[strokePoints[0]];
-for(let i=1;i<strokePoints.length-1;i++){
-if(pointLine(strokePoints[i],simplified[simplified.length-1],strokePoints[i+1])>5){
-simplified.push(strokePoints[i]);
-}
-}
-simplified.push(strokePoints[strokePoints.length-1]);
-
-for(let i=0;i<simplified.length-1;i++){
-const a=i===0?nearestPoint(simplified[i]):simplified[i];
-const b=i===simplified.length-2?nearestPoint(simplified[i+1]):simplified[i+1];
-if(dist(a,b)>12){
-roads.push({x1:clamp(a.x/W,0,1),y1:clamp(a.y/H,0,1),x2:clamp(b.x/W,0,1),y2:clamp(b.y/H,0,1)});
-cost+=Math.round(dist(a,b)*.4);
-}
-}
-buildGraph();
-rerouteCars();
-}
-strokePoints=[];
-});
-
-function carPosition(c){
-const s=c.path[c.i];
-if(!s)return null;
-const a=s.from,b=s.to;
-const dx=b.x-a.x,dy=b.y-a.y,len=Math.max(1,Math.hypot(dx,dy));
-const laneOffset=3.5*c.lane;
-return{
-x:a.x+(b.x-a.x)*c.t-dy/len*laneOffset,
-y:a.y+(b.y-a.y)*c.t+dx/len*laneOffset
-};
-}
-
-function edgeLoad(e){return cars.filter(c=>c.path[c.i]?.edge===e).length}
-
 function update(dt){
-spawnTimer+=dt;
-if(spawnTimer>=3.5&&cars.length<12){
-spawnTimer=0;
-spawnCar();
+  if(!running)return;
+  spawnTimer+=dt;
+  if(spawnTimer>=2.7&&cars.length<14){
+    spawnTimer=0;
+    spawnCar();
+  }
+  edgeTraffic();
+  for(const c of cars){
+    const step=c.path[c.index];
+    if(!step)continue;
+    let speed=c.speed;
+    const traffic=step.edge.cars;
+    if(traffic>=2)speed*=.72;
+    if(traffic>=4)speed*=.45;
+    for(const other of cars){
+      if(other===c)continue;
+      const os=other.path[other.index];
+      if(!os||os.edge!==step.edge||other.index!==c.index)continue;
+      const delta=other.t-c.t;
+      if(delta>.005&&delta<.16)speed*=Math.max(.12,delta/.16);
+    }
+    c.t+=speed*dt/step.edge.length;
+    if(c.t>=1){
+      c.index++;
+      c.t=0;
+      if(c.index>=c.path.length){
+        c.done=true;
+        arrived++;
+      }
+    }
+  }
+  cars=cars.filter(c=>!c.done);
+  edgeTraffic();
+  $("moving").textContent=cars.length;
+  $("arrived").textContent=arrived;
+  $("speed").textContent=cars.length?Math.round(cars.reduce((s,c)=>s+c.speed,0)/cars.length):0;
+  $("traffic").textContent=edges.filter(e=>e.cars>=2).length;
 }
-
-for(const c of cars){
-const s=c.path[c.i];
-if(!s)continue;
-let gap=Infinity;
-for(const other of cars){
-if(other===c)continue;
-const os=other.path[other.i];
-if(!os||os.edge!==s.edge)continue;
-const ahead=other.t-c.t;
-if(ahead>0&&ahead<gap)gap=ahead;
+function carPosition(c){
+  const s=c.path[c.index];
+  if(!s)return null;
+  const a=s.from,b=s.to;
+  const x=lerp(a.x,b.x,c.t),y=lerp(a.y,b.y,c.t);
+  const angle=Math.atan2(b.y-a.y,b.x-a.x);
+  const offset=c.lane*4;
+  return {x:x-Math.sin(angle)*offset,y:y+Math.cos(angle)*offset,angle};
 }
-let velocity=c.speed;
-if(gap<.09)velocity=0;
-else if(gap<.17)velocity*=.25;
-else if(gap<.26)velocity*=.65;
-c.t+=velocity*dt/Math.max(1,s.edge.length);
-if(c.t>=1){
-c.i++;c.t=0;
-if(c.i>=c.path.length)arrived++;
+function drawGrid(){
+  ctx.fillStyle="#18231f";ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle="#26372e";ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
 }
+function drawRoad(road){
+  for(let i=0;i<road.length-1;i++){
+    const a=road[i],b=road[i+1];
+    const e=edges.find(v=>(dist(v.a,a)<4&&dist(v.b,b)<4)||(dist(v.a,b)<4&&dist(v.b,a)<4));
+    const count=e?e.cars:0;
+    const color=count>=4?"#e94c4c":count>=2?"#f2a23a":"#626c76";
+    ctx.lineCap="round";ctx.lineJoin="round";
+    ctx.strokeStyle="#101419";ctx.lineWidth=35;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.strokeStyle=color;ctx.lineWidth=29;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.strokeStyle="#d4d8d8";ctx.lineWidth=1.4;ctx.setLineDash([10,10]);
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
-cars=cars.filter(c=>c.i<c.path.length);
+function drawMarker(p,label,color,shape="circle"){
+  ctx.save();ctx.translate(p.x,p.y);
+  ctx.fillStyle=color;ctx.strokeStyle="#ffffff";ctx.lineWidth=2;
+  ctx.beginPath();
+  if(shape==="diamond"){ctx.moveTo(0,-13);ctx.lineTo(13,0);ctx.lineTo(0,13);ctx.lineTo(-13,0);ctx.closePath()}
+  else ctx.arc(0,0,12,0,Math.PI*2);
+  ctx.fill();ctx.stroke();
+  ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.textAlign="center";
+  ctx.fillText(label,0,-21);
+  ctx.restore();
 }
-
-function roadColor(e){
-const n=edgeLoad(e);
-if(n>=4)return "#e64d4d";
-if(n>=2)return "#f0a43a";
-return "#657583";
-}
-
-function line(a,b,color,width){
-ctx.beginPath();
-ctx.moveTo(a.x,a.y);
-ctx.lineTo(b.x,b.y);
-ctx.strokeStyle=color;
-ctx.lineWidth=width;
-ctx.lineCap="round";
-ctx.lineJoin="round";
-ctx.stroke();
-}
-
-function drawRoads(){
-for(const e of edges)line(e.a,e.b,"#111820",36);
-for(const e of edges)line(e.a,e.b,"#303a44",30);
-for(const e of edges)line(e.a,e.b,roadColor(e),25);
-
-for(const e of edges){
-const dx=e.b.x-e.a.x,dy=e.b.y-e.a.y,len=Math.max(1,Math.hypot(dx,dy));
-const ox=-dy/len*6.3,oy=dx/len*6.3;
-line({x:e.a.x+ox,y:e.a.y+oy},{x:e.b.x+ox,y:e.b.y+oy},"#c8d0d7",1);
-line({x:e.a.x-ox,y:e.a.y-oy},{x:e.b.x-ox,y:e.b.y-oy},"#c8d0d7",1);
-ctx.save();
-ctx.setLineDash([10,12]);
-line(e.a,e.b,"#e1e6ea",1);
-ctx.restore();
-}
-}
-
 function drawCar(c){
-const s=c.path[c.i];
-if(!s)return;
-const a=s.from,b=s.to;
-const dx=b.x-a.x,dy=b.y-a.y;
-const len=Math.max(1,Math.hypot(dx,dy));
-const pos=carPosition(c);
-const angle=Math.atan2(dy,dx);
-
-ctx.save();
-ctx.translate(pos.x,pos.y);
-ctx.rotate(angle);
-ctx.fillStyle=c.color;
-ctx.strokeStyle="#17212a";
-ctx.lineWidth=1;
-ctx.beginPath();
-ctx.roundRect(-8,-3.2,16,6.4,2);
-ctx.fill();ctx.stroke();
-ctx.fillStyle="#74a9c8";
-ctx.fillRect(-2.5,-2.4,5,4.8);
-ctx.fillStyle="#fff0b5";
-ctx.fillRect(6,-2.2,1.5,1.3);
-ctx.fillRect(6,.9,1.5,1.3);
-ctx.fillStyle="#d45d58";
-ctx.fillRect(-8,-2.2,1.5,1.3);
-ctx.fillRect(-8,.9,1.5,1.3);
-ctx.restore();
+  const p=carPosition(c);
+  if(!p)return;
+  ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);
+  ctx.fillStyle="#0b0f13";ctx.fillRect(-10,-7,22,16);
+  ctx.fillStyle=c.color;ctx.fillRect(-11,-6,22,12);
+  ctx.fillStyle="#263d4d";ctx.fillRect(1,-4,6,8);
+  ctx.fillStyle="#f8e6a0";ctx.fillRect(8,-4,2,3);ctx.fillRect(8,1,2,3);
+  ctx.restore();
 }
-
-function marker(p,label,color){
-const s=screen(p);
-ctx.fillStyle=color;
-ctx.beginPath();ctx.arc(s.x,s.y,12,0,Math.PI*2);ctx.fill();
-ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.stroke();
-ctx.fillStyle="#fff";ctx.font="bold 12px Arial";ctx.textAlign="center";
-ctx.fillText(label,s.x,s.y-21);
-}
-
 function draw(){
-ctx.clearRect(0,0,W,H);
-ctx.fillStyle="#202b34";ctx.fillRect(0,0,W,H);
-
-ctx.strokeStyle="#2c3741";ctx.lineWidth=1;
-for(let x=0;x<W;x+=28){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
-for(let y=0;y<H;y+=28){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
-
-drawRoads();
-
-for(const n of nodes){
-if(n.links.length<3)continue;
-ctx.beginPath();ctx.arc(n.x,n.y,13,0,Math.PI*2);
-ctx.fillStyle="#303a44";ctx.fill();
-ctx.strokeStyle="#9aa9b6";ctx.lineWidth=1;ctx.stroke();
+  drawGrid();
+  drawRoadsOnly();
+  for(const n of nodes){
+    if(n.links.length>2){
+      ctx.fillStyle="#626c76";ctx.beginPath();ctx.arc(n.x,n.y,14,0,Math.PI*2);ctx.fill();
+    }
+  }
+  for(const c of cars)drawCar(c);
+  drawMarker(START,"START","#299e72");
+  drawMarker(mid,"MID","#d59b30","diamond");
+  drawMarker(GOAL,"GOAL","#347fdb");
+  if(firstPoint){
+    ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,7,0,Math.PI*2);ctx.stroke();
+  }
+  if(drawing&&stroke.length>1){
+    ctx.strokeStyle="#d9f0ff";ctx.lineWidth=3;ctx.setLineDash([5,5]);
+    ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);
+    for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);
+    ctx.stroke();ctx.setLineDash([]);
+  }
 }
-
-for(const c of cars)drawCar(c);
-
-marker(START,"START","#218ce0");
-marker(MID,"中間地点","#c58b35");
-marker(GOAL,"GOAL","#25ad72");
-
-if(mode==="direct"&&firstPoint){
-ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,7,0,Math.PI*2);
-ctx.fillStyle="#ffffff";ctx.fill();
+function drawRoadsOnly(){
+  for(const road of roads)drawRoad(road);
 }
-if(mode==="free"&&drawing&&strokePoints.length>1){
-for(let i=0;i<strokePoints.length-1;i++)line(strokePoints[i],strokePoints[i+1],"#b9e7ff",4);
+canvas.addEventListener("pointerdown",e=>{
+  const p=screenPoint(e);
+  if(mode==="freehand"){
+    drawing=true;stroke=[p];canvas.setPointerCapture(e.pointerId);draw();return;
+  }
+  if(!firstPoint){firstPoint=snapPoint(p);draw();return}
+  const end=snapPoint(p);
+  if(dist(firstPoint,end)>12)addRoad([firstPoint,end]);
+  firstPoint=null;draw();
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!drawing)return;
+  const p=screenPoint(e);
+  if(dist(stroke[stroke.length-1],p)>3)stroke.push(p);
+  draw();
+});
+function finishStroke(){
+  if(!drawing)return;
+  drawing=false;
+  const result=smoothStroke(stroke);
+  stroke=[];
+  if(result.length>1)addRoad(result);
+  draw();
 }
+canvas.addEventListener("pointerup",finishStroke);
+canvas.addEventListener("pointercancel",finishStroke);
 
-$("count").textContent=cars.length;
-$("arrived").textContent=arrived;
-$("cost").textContent=cost;
-$("traffic").textContent=edges.filter(e=>edgeLoad(e)>=2).length;
-let total=0;
-for(const c of cars){
-const s=c.path[c.i];
-if(s)total+=Math.max(0,c.speed-(edgeLoad(s.edge)-1)*4);
-}
-$("speed").textContent=cars.length?Math.round(total/cars.length):0;
-}
+$("straight").onclick=()=>{
+  mode="straight";firstPoint=null;
+  $("straight").classList.add("active");$("freehand").classList.remove("active");
+  draw();
+};
+$("freehand").onclick=()=>{
+  mode="freehand";firstPoint=null;
+  $("freehand").classList.add("active");$("straight").classList.remove("active");
+  draw();
+};
+$("run").onclick=()=>{
+  running=!running;
+  $("run").textContent=running?"一時停止":"運転開始";
+  $("run").classList.toggle("active",running);
+};
+$("undo").onclick=()=>{
+  roads.pop();cars=[];rebuildGraph();draw();
+};
+$("reset").onclick=()=>{
+  roads=[];cars=[];nodes=[];edges=[];arrived=0;spawnTimer=0;
+  firstPoint=null;stroke=[];drawing=false;running=false;randomMid();
+  $("run").textContent="運転開始";$("run").classList.remove("active");
+  $("moving").textContent="0";$("arrived").textContent="0";
+  $("speed").textContent="0";$("traffic").textContent="0";
+  rebuildGraph();draw();
+};
 
-function frame(t){
-if(!last)last=t;
-const dt=Math.min((t-last)/1000,.035);
-last=t;
-update(dt);
-draw();
-requestAnimationFrame(frame);
+function loop(t){
+  const dt=Math.min((t-lastTime)/1000||0,.05);
+  lastTime=t;
+  update(dt);draw();
+  requestAnimationFrame(loop);
 }
-
-reset();
-resize();
-window.addEventListener("resize",resize);
-requestAnimationFrame(frame);
+randomMid();
+resizeCanvas();
+rebuildGraph();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
