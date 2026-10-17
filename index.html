@@ -12,9 +12,9 @@ header{padding:13px 16px;background:#222d38}
 h1{font-size:21px;margin:0 0 4px}
 header p{margin:0;color:#aebdca;font-size:12px}
 #toolbar,#stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:#202a34}
-#stats{background:#19232d;gap:18px;font-size:12px}
+#stats{background:#19232d;gap:16px;font-size:12px}
 #stats b{color:#8fd1ff}
-button{border:1px solid #506170;background:#303e4b;color:white;border-radius:7px;padding:10px 13px;font-size:13px}
+button{border:1px solid #506170;background:#303e4b;color:white;border-radius:7px;padding:10px 13px;font-size:13px;cursor:pointer}
 button.active{background:#187dc1;border-color:#6bc2ff}
 #notice{padding:8px 14px;color:#bdcbd7;font-size:12px}
 #stage{height:calc(100dvh - 185px);min-height:360px}
@@ -30,7 +30,7 @@ button{padding:9px;font-size:12px}
 <body>
 <header>
 <h1>Traffic Flow</h1>
-<p>道路を建設して、STARTからGOALまでの渋滞を解消しよう。</p>
+<p>道路を建設し、STARTからGOALへの交通網を完成させよう。</p>
 </header>
 <div id="toolbar">
 <button id="build" class="active">＋ 道路を建設</button>
@@ -43,7 +43,7 @@ button{padding:9px;font-size:12px}
 <div>混雑区間 <b id="traffic">0</b></div>
 <div>建設費 <b id="cost">0</b></div>
 </div>
-<div id="notice">車は自動走行中。道路建設モードで道路の始点から終点までドラッグ。</div>
+<div id="notice">道路を建設して START と GOAL をつなごう。車は約3秒ごとに出発する。</div>
 <div id="stage"><canvas id="map"></canvas></div>
 <script>
 const canvas=document.querySelector("#map");
@@ -82,12 +82,13 @@ buildGraph();
 
 function reset(){
 roads=[
-{x1:.055,y1:.5,x2:.945,y2:.5}
+{x1:.055,y1:.5,x2:.30,y2:.5},
+{x1:.70,y1:.5,x2:.945,y2:.5}
 ];
 cost=0;spawn=0;cars=[];
 buildGraph();
-for(let i=0;i<5;i++)spawnCar(i*.85);
 setMode("build");
+$("notice").textContent="道路が分断されています。道路を建設して START と GOAL を接続しよう。";
 }
 
 function buildGraph(){
@@ -99,9 +100,7 @@ const cuts=ss.map(s=>[
 {t:1,x:s.x2,y:s.y2}
 ]);
 
-function addCut(i,t,p){
-cuts[i].push({t,x:p.x,y:p.y});
-}
+function addCut(i,t,p){cuts[i].push({t,x:p.x,y:p.y})}
 
 for(let i=0;i<ss.length;i++){
 for(let j=i+1;j<ss.length;j++){
@@ -140,7 +139,6 @@ let n=nodes.find(v=>dist(v,p)<5);
 if(!n){n={x:p.x,y:p.y,links:[]};nodes.push(n)}
 return n;
 }
-
 for(let i=0;i<ss.length;i++){
 const list=cuts[i].sort((a,b)=>a.t-b.t),clean=[];
 for(const p of list){
@@ -152,18 +150,19 @@ if(a===b||dist(a,b)<8)continue;
 if(edges.some(e=>(e.a===a&&e.b===b)||(e.a===b&&e.b===a)))continue;
 const e={a,b,length:dist(a,b)};
 edges.push(e);
-a.links.push({node:b,edge:e});b.links.push({node:a,edge:e});
+a.links.push({node:b,edge:e});
+b.links.push({node:a,edge:e});
 }
 }
 }
 
 function nearestPoint(p){
-let best=p,bd=18;
+let best=null,bd=18;
 for(const n of nodes){
 const d=dist(p,n);
 if(d<bd){best=n;bd=d}
 }
-if(best!==p)return{x:best.x,y:best.y};
+if(best)return{x:best.x,y:best.y};
 for(const r of roads){
 const s=px(r);
 if(pointLine(p,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2})<13){
@@ -177,7 +176,7 @@ return{x:s.x1+t*dx,y:s.y1+t*dy};
 return p;
 }
 function nearestNode(p){
-let best=null,bd=24;
+let best=null,bd=20;
 for(const n of nodes){const d=dist(p,n);if(d<bd){best=n;bd=d}}
 return best;
 }
@@ -194,7 +193,7 @@ closed.add(n);
 if(n===b)break;
 for(const l of n.links){
 const traffic=cars.filter(c=>c.path[c.i]?.edge===l.edge).length;
-const s=score.get(n)+l.edge.length*(1+traffic*.35);
+const s=score.get(n)+l.edge.length*(1+traffic*.7);
 if(s<(score.get(l.node)??Infinity)){
 score.set(l.node,s);prev.set(l.node,{n,edge:l.edge});open.push(l.node);
 }
@@ -209,17 +208,19 @@ path.unshift({from:p.n,to:n,edge:p.edge});n=p.n;
 return path;
 }
 
-function spawnCar(offset=0){
+function spawnCar(){
 const path=findRoute();
 if(!path.length)return;
-cars.push({path,i:0,t:Math.min(.8,offset*.035),speed:32+Math.random()*7,color:["#f5f7fa","#a8d6f5","#e9d5bf","#c7dfd0"][Math.floor(Math.random()*4)]});
+cars.push({path,i:0,t:0,speed:24+Math.random()*5,color:["#f5f7fa","#a8d6f5","#e9d5bf","#c7dfd0"][Math.floor(Math.random()*4)]});
 }
 
 function setMode(m){
 mode=m;
 $("build").classList.toggle("active",m==="build");
 $("normal").classList.toggle("active",m==="normal");
-$("notice").textContent=m==="build"?"道路の始点から終点までドラッグ。既存道路に接続すると交差点になる。":"車は自動走行中。道路を追加するには「道路を建設」を押す。";
+$("notice").textContent=m==="build"
+?"道路の始点から終点までドラッグ。既存道路に接続すると交差点になる。"
+:"車は接続済みの道路を自動走行中。道路を追加するには「道路を建設」を押す。";
 }
 $("build").onclick=()=>setMode("build");
 $("normal").onclick=()=>setMode("normal");
@@ -245,52 +246,40 @@ cost+=Math.round(dist(a,b)*.4);
 buildGraph();
 const old=cars.length;
 cars=[];
-for(let i=0;i<Math.max(5,old);i++)spawnCar(i*.7);
+if(nearestNode(screen(START))&&nearestNode(screen(GOAL))){
+for(let i=0;i<Math.max(5,old);i++)spawnCar();
+}
 }
 p0=null;p1=null;
 });
 
-function occupancy(e){
-return cars.filter(c=>c.path[c.i]?.edge===e).length;
-}
 function carPosition(c){
-const s=c.path[c.i];
-if(!s)return null;
+const s=c.path[c.i];if(!s)return null;
 return{x:s.from.x+(s.to.x-s.from.x)*c.t,y:s.from.y+(s.to.y-s.from.y)*c.t};
 }
-
 function update(dt){
 spawn+=dt;
-if(spawn>=2.8&&cars.length<12){spawn=0;spawnCar()}
+if(spawn>=3.5&&cars.length<10){spawn=0;spawnCar()}
 for(const c of cars){
-const s=c.path[c.i];
-if(!s)continue;
-const pos=carPosition(c);
+const s=c.path[c.i];if(!s)continue;
 let gap=Infinity;
 for(const other of cars){
 if(other===c)continue;
-const op=carPosition(other);
-if(!op)continue;
-if(other.path[other.i]?.edge===s.edge){
+const os=other.path[other.i];
+if(!os||os.edge!==s.edge)continue;
 const ahead=other.t-c.t;
 if(ahead>0&&ahead<gap)gap=ahead;
 }
-}
 let velocity=c.speed;
-if(gap<.18)velocity=0;
-else if(gap<.32)velocity*=.35;
-const len=Math.max(1,s.edge.length);
-c.t+=velocity*dt*.55/len*100;
+if(gap<.12)velocity=0;
+else if(gap<.22)velocity*=.35;
+c.t+=velocity*dt/Math.max(1,s.edge.length);
 if(c.t>=1){c.i++;c.t=0}
 }
 cars=cars.filter(c=>c.i<c.path.length);
 }
 
-function edgeLoad(e){
-let n=0;
-for(const c of cars)if(c.path[c.i]?.edge===e)n++;
-return n;
-}
+function edgeLoad(e){return cars.filter(c=>c.path[c.i]?.edge===e).length}
 function colorFor(e){
 const n=edgeLoad(e);
 return n>=3?"#ed4d4d":n>=2?"#f2a13b":"#697783";
@@ -299,20 +288,16 @@ function line(a,b,color,width){
 ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
 ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
 }
-
 function drawRoads(){
-const all=edges.map(e=>({e,a:e.a,b:e.b}));
-for(const s of all)line(s.a,s.b,"#111820",35);
-for(const s of all)line(s.a,s.b,"#303a44",29);
-for(const s of all)line(s.a,s.b,colorFor(s.e),24);
-for(const s of all){
-line(s.a,s.b,"#e3e7ea",1.4);
+for(const e of edges)line(e.a,e.b,"#101820",35);
+for(const e of edges)line(e.a,e.b,"#303a44",29);
+for(const e of edges)line(e.a,e.b,colorFor(e),24);
+for(const e of edges){
 ctx.save();ctx.setLineDash([10,12]);
-line(s.a,s.b,"#bac4cc",1);
+line(e.a,e.b,"#d9e0e6",1.3);
 ctx.restore();
 }
 }
-
 function drawCar(c){
 const s=c.path[c.i];if(!s)return;
 const a=s.from,b=s.to,pos=carPosition(c);
@@ -325,7 +310,6 @@ ctx.fillStyle="#fff0b5";ctx.fillRect(6,-2.5,1.5,1.5);ctx.fillRect(6,1,1.5,1.5);
 ctx.fillStyle="#d45d58";ctx.fillRect(-8,-2.5,1.5,1.5);ctx.fillRect(-8,1,1.5,1.5);
 ctx.restore();
 }
-
 function marker(p,label,color){
 const s=screen(p);
 ctx.fillStyle=color;ctx.beginPath();ctx.arc(s.x,s.y,13,0,Math.PI*2);ctx.fill();
@@ -333,14 +317,12 @@ ctx.strokeStyle="#fff";ctx.lineWidth=3;ctx.stroke();
 ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.textAlign="center";
 ctx.fillText(label,s.x,s.y-23);
 }
-
 function draw(){
 ctx.clearRect(0,0,W,H);
 ctx.fillStyle="#202b34";ctx.fillRect(0,0,W,H);
 ctx.strokeStyle="#2c3741";ctx.lineWidth=1;
 for(let x=0;x<W;x+=28){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
 for(let y=0;y<H;y+=28){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
-
 drawRoads();
 for(const n of nodes){
 if(n.links.length<3)continue;
@@ -351,15 +333,12 @@ for(const c of cars)drawCar(c);
 marker(START,"START","#218ce0");
 marker(GOAL,"GOAL","#25ad72");
 if(drawing&&p0&&p1)line(p0,p1,"#b9e7ff",5);
-
 $("count").textContent=cars.length;
 $("cost").textContent=cost;
 $("traffic").textContent=edges.filter(e=>edgeLoad(e)>=2).length;
 let sum=0;
 for(const c of cars){
-const s=c.path[c.i];if(!s)continue;
-const load=edgeLoad(s.edge);
-sum+=load>=3?8:load===2?20:c.speed;
+const s=c.path[c.i];if(s)sum+=Math.max(0,c.speed-(edgeLoad(s.edge)-1)*6);
 }
 $("speed").textContent=cars.length?Math.round(sum/cars.length):0;
 }
