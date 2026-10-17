@@ -3,682 +3,530 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Traffic Flow</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{color-scheme:dark}
-body{background:#171b20;color:#f3f5f7;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none;width:100vw;height:100dvh}
-#ui{position:absolute;z-index:5;top:0;left:0;right:0;padding:10px 12px;background:rgba(18,22,27,.96);border-bottom:1px solid #414951;display:grid;gap:9px}
-#stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
-.stat{background:#262d35;border:1px solid #3b444e;border-radius:8px;padding:7px 9px;min-width:0}
-.stat span{display:block;color:#aeb8c2;font-size:11px}
-.stat strong{display:block;font-size:18px;line-height:1.35;font-variant-numeric:tabular-nums}
-#tools{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-button{font:inherit;font-size:13px;font-weight:650;color:#f6f7f8;background:#303943;border:1px solid #59636e;border-radius:8px;min-height:42px;padding:7px 4px}
-button.active{background:#176c60;border-color:#42c9a7}
-button:disabled{opacity:.45}
-#message{font-size:12px;line-height:1.4;color:#dce3e9;min-height:17px}
-#hint{font-size:11px;color:#aab5c0}
-canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none;background:#222a2e}
+*{box-sizing:border-box}
+body{margin:0;background:#151a20;color:#f1f4f7;font-family:Arial,"Noto Sans JP",sans-serif}
+header{padding:14px 18px;background:#202832;border-bottom:1px solid #38434f}
+h1{font-size:21px;margin:0 0 5px}
+header p{font-size:12px;color:#aeb9c5;margin:0}
+#toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#202832;align-items:center}
+button{background:#303c49;color:#fff;border:1px solid #526273;border-radius:7px;padding:10px 13px;font-size:13px;cursor:pointer}
+button.active{background:#2877b8;border-color:#58a9ed}
+button:hover{filter:brightness(1.15)}
+#stats{display:flex;gap:18px;padding:10px 16px;flex-wrap:wrap;background:#192129;font-size:13px}
+.stat span{color:#80c9ff;font-weight:bold;margin-left:5px}
+#notice{padding:8px 16px;color:#b9c5d1;font-size:12px}
+#stage{width:100%;height:calc(100dvh - 190px);min-height:380px;position:relative;overflow:hidden}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+#legend{position:absolute;right:12px;bottom:12px;background:#192129e8;border:1px solid #43505d;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.9;pointer-events:none}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+@media(max-width:600px){header{padding:11px 13px}#toolbar{padding:9px;gap:6px}button{padding:9px;font-size:12px}#stats{gap:10px;font-size:12px}#stage{height:calc(100dvh - 225px);min-height:330px}}
 </style>
 </head>
 <body>
-<div id="ui">
-  <div id="stats">
-    <div class="stat"><span>残り予算</span><strong id="budget">5000</strong></div>
-    <div class="stat"><span>平均速度</span><strong><span id="avgSpeed" style="display:inline;font-size:18px;color:#f3f5f7">--</span></strong></div>
-    <div class="stat"><span>渋滞解消</span><strong><span id="clearTime" style="display:inline;font-size:18px;color:#f3f5f7">0.0</span><span style="display:inline;font-size:12px"> / 12秒</span></strong></div>
-  </div>
-  <div id="tools">
-    <button id="btnRoad" class="active">道路を追加</button>
-    <button id="btnLight">信号設置<br>(300)</button>
-    <button id="btnStart">交通開始</button>
-    <button id="btnReset">やり直す</button>
-  </div>
-  <div id="message">赤い道路が渋滞地点。迂回路を追加して交通を分散させよう。</div>
-  <div id="hint">道路：画面上でドラッグして道を描く。信号：道路の交差点付近をタップ。</div>
-</div>
-<canvas id="c"></canvas>
-<script>
-const canvas=document.getElementById('c');
-const ctx=canvas.getContext('2d');
-const ui=document.getElementById('ui');
-const budgetEl=document.getElementById('budget');
-const avgSpeedEl=document.getElementById('avgSpeed');
-const clearTimeEl=document.getElementById('clearTime');
-const messageEl=document.getElementById('message');
-const btnRoad=document.getElementById('btnRoad');
-const btnLight=document.getElementById('btnLight');
-const btnStart=document.getElementById('btnStart');
-const btnReset=document.getElementById('btnReset');
+<header>
+<h1>Traffic Flow</h1>
+<p>道路をつなぎ、車の流れを改善しよう。</p>
+</header>
 
-let W=0,H=0,uiHeight=0;
-let budget=5000,mode='road',drawing=false,currentStroke=[],roads=[],nodes=[],edges=[],lights=[],cars=[];
-let running=false,smoothTimer=0,lastTime=0,spawnTimer=0,carId=0,initialSetup=false;
-const ROAD_COST_PER_PX=.55,LIGHT_COST=300,NODE_MERGE_DIST=24,CAR_SPAWN_INTERVAL=.85,MAX_CARS=55,JAM_THRESHOLD=3,SMOOTH_SPEED=42,SMOOTH_NEEDED=12;
-const COLORS=['#f2eee5','#d94b45','#e2b64e','#4e9b72','#5389c6','#9a7ac4','#e28a45','#d7dce0'];
+<div id="toolbar">
+<button id="roadBtn">＋ 道路を引く</button>
+<button id="normalBtn" class="active">通常操作</button>
+<button id="resetBtn">やり直す</button>
+</div>
+
+<div id="stats">
+<div class="stat">走行中 <span id="carCount">0</span> 台</div>
+<div class="stat">平均速度 <span id="avgSpeed">0</span> km/h</div>
+<div class="stat">渋滞 <span id="jamCount">0</span> か所</div>
+<div class="stat">道路 <span id="roadCount">0</span> 本</div>
+</div>
+
+<div id="notice">車は自動で走行中。道路を引くには「道路を引く」を押して、始点から終点までドラッグ。</div>
+
+<div id="stage">
+<canvas id="canvas"></canvas>
+<div id="legend">
+<div><span class="dot" style="background:#f5f7fa"></span>一般車</div>
+<div><span class="dot" style="background:#f5c451"></span>低速・渋滞中</div>
+<div><span class="dot" style="background:#70b7f5"></span>道路の交差点</div>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const roadBtn=document.getElementById("roadBtn");
+const normalBtn=document.getElementById("normalBtn");
+const resetBtn=document.getElementById("resetBtn");
+
+let W=0,H=0,dpr=1;
+let roads=[];
+let nodes=[];
+let edges=[];
+let cars=[];
+let drawing=false;
+let roadMode=false;
+let drawStart=null;
+let drawEnd=null;
+let lastTime=0;
+let elapsed=0;
+let totalRoads=0;
+
+const initialRoads=[
+[0.06,0.22,0.94,0.22],
+[0.06,0.50,0.94,0.50],
+[0.06,0.78,0.94,0.78],
+[0.22,0.08,0.22,0.92],
+[0.50,0.08,0.50,0.92],
+[0.78,0.08,0.78,0.92],
+[0.22,0.22,0.50,0.50],
+[0.50,0.50,0.78,0.78]
+];
+
+function makeRoad(a,b){
+return {x1:a.x,y1:a.y,x2:b.x,y2:b.y};
+}
+
+function pxRoad(r){
+return {
+x1:r.x1*W,y1:r.y1*H,
+x2:r.x2*W,y2:r.y2*H
+};
+}
+
+function distance(a,b){
+return Math.hypot(a.x-b.x,a.y-b.y);
+}
+
+function clamp(v,a,b){
+return Math.max(a,Math.min(b,v));
+}
 
 function resize(){
-  const dpr=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth;
-  H=window.innerHeight;
-  uiHeight=ui.offsetHeight;
-  canvas.width=Math.floor(W*dpr);
-  canvas.height=Math.floor(H*dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  if(!initialSetup)setupDefaultRoads();
-  else draw();
-}
-window.addEventListener('resize',resize);
-
-function setupDefaultRoads(){
-  initialSetup=true;
-  roads=[];
-  const cx=W*.5,cy=(uiHeight+H)*.52;
-  const left=W*.12,right=W*.88,top=uiHeight+28,bottom=H-28;
-  roads.push([
-    {x:left,y:cy},
-    {x:cx-W*.12,y:cy},
-    {x:cx,y:cy},
-    {x:cx+W*.12,y:cy},
-    {x:right,y:cy}
-  ]);
-  roads.push([
-    {x:cx,y:top},
-    {x:cx,y:cy-W*.12},
-    {x:cx,y:cy},
-    {x:cx,y:cy+W*.12},
-    {x:cx,y:bottom}
-  ]);
-  roads.push([
-    {x:cx-W*.12,y:cy},
-    {x:cx-W*.12,y:cy-W*.12},
-    {x:cx,y:cy-W*.12}
-  ]);
-  roads.push([
-    {x:cx,y:cy+W*.12},
-    {x:cx+W*.12,y:cy+W*.12},
-    {x:cx+W*.12,y:cy}
-  ]);
-  buildGraph();
-  seedCars();
-}
-
-function seedCars(){
-  cars=[];
-  const count=nodes.length;
-  if(count<2)return;
-  for(let i=0;i<12;i++){
-    const start=i%count;
-    let end=(start+Math.max(1,Math.floor(count/2)))%count;
-    if(end===start)end=(start+1)%count;
-    const path=dijkstra(start,end);
-    if(path&&path.length>1)cars.push(makeCar(path));
-  }
-}
-
-function makeCar(path){
-  return {
-    id:++carId,
-    path,
-    idx:0,
-    t:Math.random()*.35,
-    speed:60,
-    baseSpeed:58+Math.random()*18,
-    color:COLORS[Math.floor(Math.random()*COLORS.length)],
-    wait:0
-  };
-}
-
-function setMode(next){
-  if(running)return;
-  mode=next;
-  btnRoad.classList.toggle('active',mode==='road');
-  btnLight.classList.toggle('active',mode==='light');
-  messageEl.textContent=mode==='road'
-    ?'ドラッグして道路を追加。既存の道路につなぐと迂回路になる。'
-    :'道路の上をタップして信号を設置する。';
-}
-
-btnRoad.onclick=()=>setMode('road');
-btnLight.onclick=()=>setMode('light');
-
-btnStart.onclick=()=>{
-  if(running)return;
-  buildGraph();
-  if(nodes.length<2||edges.length<1){
-    messageEl.textContent='道路をつないでから開始してね。';
-    return;
-  }
-  running=true;
-  lastTime=0;
-  spawnTimer=0;
-  btnStart.disabled=true;
-  messageEl.textContent='交通開始。赤い区間を見て道路を改善しよう。';
-};
-
-btnReset.onclick=()=>{
-  budget=5000;
-  mode='road';
-  drawing=false;
-  currentStroke=[];
-  roads=[];
-  nodes=[];
-  edges=[];
-  lights=[];
-  cars=[];
-  running=false;
-  smoothTimer=0;
-  spawnTimer=0;
-  carId=0;
-  initialSetup=false;
-  btnStart.disabled=false;
-  btnStart.textContent='交通開始';
-  btnRoad.classList.add('active');
-  btnLight.classList.remove('active');
-  avgSpeedEl.textContent='--';
-  clearTimeEl.textContent='0.0';
-  messageEl.style.color='#dce3e9';
-  messageEl.textContent='赤い道路が渋滞地点。迂回路を追加して交通を分散させよう。';
-  setupDefaultRoads();
-  updateBudget();
-  draw();
-};
-
-function getPos(e){
-  const r=canvas.getBoundingClientRect();
-  return{x:e.clientX-r.left,y:e.clientY-r.top};
-}
-
-function startDraw(e){
-  if(running)return;
-  e.preventDefault();
-  const p=getPos(e);
-  if(p.y<uiHeight)return;
-  if(mode==='road'){
-    drawing=true;
-    currentStroke=[p];
-    if(canvas.setPointerCapture)canvas.setPointerCapture(e.pointerId);
-  }else{
-    if(budget<LIGHT_COST){
-      messageEl.textContent='予算不足。信号には300必要。';
-      return;
-    }
-    if(distanceToRoad(p)>24){
-      messageEl.textContent='信号は道路の近くに設置してね。';
-      return;
-    }
-    lights.push({x:p.x,y:p.y,green:true,timer:0});
-    budget-=LIGHT_COST;
-    updateBudget();
-    draw();
-    messageEl.textContent='信号を設置した。';
-  }
-}
-
-function moveDraw(e){
-  if(!drawing||running)return;
-  e.preventDefault();
-  const p=getPos(e);
-  const last=currentStroke[currentStroke.length-1];
-  if(p.y>=uiHeight&&dist(last,p)>5)currentStroke.push(p);
-  draw();
-}
-
-function endDraw(e){
-  if(!drawing||running)return;
-  e.preventDefault();
-  drawing=false;
-  if(currentStroke.length<2){
-    currentStroke=[];
-    draw();
-    return;
-  }
-  let len=0;
-  for(let i=1;i<currentStroke.length;i++){
-    len+=dist(currentStroke[i-1],currentStroke[i]);
-  }
-  const cost=Math.ceil(len*ROAD_COST_PER_PX);
-  if(budget<cost){
-    messageEl.textContent='予算不足。必要額：'+cost;
-    currentStroke=[];
-    draw();
-    return;
-  }
-  budget-=cost;
-  roads.push(currentStroke.slice());
-  currentStroke=[];
-  updateBudget();
-  buildGraph();
-  messageEl.textContent='道路を追加した（費用 '+cost+'）。既存道路と接続できているか確認しよう。';
-  draw();
-}
-
-canvas.addEventListener('pointerdown',startDraw);
-canvas.addEventListener('pointermove',moveDraw);
-canvas.addEventListener('pointerup',endDraw);
-canvas.addEventListener('pointercancel',endDraw);
-
-function dist(a,b){
-  return Math.hypot(a.x-b.x,a.y-b.y);
-}
-
-function updateBudget(){
-  budgetEl.textContent=budget.toLocaleString();
-}
-
-function distanceToRoad(p){
-  let best=Infinity;
-  roads.forEach(stroke=>{
-    for(let i=1;i<stroke.length;i++){
-      best=Math.min(best,pointSegmentDistance(p,stroke[i-1],stroke[i]));
-    }
-  });
-  return best;
+const rect=canvas.getBoundingClientRect();
+W=rect.width;
+H=rect.height;
+dpr=Math.min(window.devicePixelRatio||1,2);
+canvas.width=Math.round(W*dpr);
+canvas.height=Math.round(H*dpr);
+ctx.setTransform(dpr,0,0,dpr,0,0);
+buildGraph();
+seedCars();
 }
 
 function pointSegmentDistance(p,a,b){
-  const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy;
-  if(!l2)return dist(p,a);
-  const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/l2));
-  return Math.hypot(p.x-(a.x+t*dx),p.y-(a.y+t*dy));
+const dx=b.x-a.x,dy=b.y-a.y;
+const len=dx*dx+dy*dy;
+if(len===0)return distance(p,a);
+const t=clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/len,0,1);
+return distance(p,{x:a.x+t*dx,y:a.y+t*dy});
+}
+
+function intersection(a,b){
+const x1=a.x1,y1=a.y1,x2=a.x2,y2=a.y2;
+const x3=b.x1,y3=b.y1,x4=b.x2,y4=b.y2;
+const den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+if(Math.abs(den)<0.0001)return null;
+const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
+const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/den;
+if(t>=-0.001&&t<=1.001&&u>=-0.001&&u<=1.001){
+return {
+x:x1+t*(x2-x1),
+y:y1+t*(y2-y1),
+t:clamp(t,0,1),
+u:clamp(u,0,1)
+};
+}
+return null;
 }
 
 function buildGraph(){
-  nodes=[];
-  edges=[];
-  const all=[];
-  roads.forEach((stroke,ri)=>{
-    stroke.forEach((p,pi)=>all.push({x:p.x,y:p.y,ri,pi}));
-  });
-  if(!all.length)return;
+nodes=[];
+edges=[];
+if(!W||!H||!roads.length)return;
 
-  const parent=all.map((_,i)=>i);
+const segs=roads.map(pxRoad);
+const splits=segs.map((s,i)=>[
+{t:0,x:s.x1,y:s.y1},
+{t:1,x:s.x2,y:s.y2}
+]);
 
-  function find(x){
-    while(parent[x]!==x){
-      parent[x]=parent[parent[x]];
-      x=parent[x];
-    }
-    return x;
-  }
+for(let i=0;i<segs.length;i++){
+for(let j=i+1;j<segs.length;j++){
+const a=segs[i],b=segs[j];
+const hit=intersection(a,b);
 
-  function union(a,b){
-    a=find(a);
-    b=find(b);
-    if(a!==b)parent[b]=a;
-  }
-
-  for(let i=0;i<all.length;i++){
-    for(let j=i+1;j<all.length;j++){
-      if(dist(all[i],all[j])<NODE_MERGE_DIST)union(i,j);
-    }
-  }
-
-  const groups=new Map();
-  all.forEach((p,i)=>{
-    const root=find(i);
-    if(!groups.has(root))groups.set(root,[]);
-    groups.get(root).push(i);
-  });
-
-  const pointToNode=new Array(all.length);
-
-  for(const group of groups.values()){
-    let x=0,y=0;
-    group.forEach(i=>{
-      x+=all[i].x;
-      y+=all[i].y;
-    });
-    const id=nodes.length;
-    nodes.push({x:x/group.length,y:y/group.length,id});
-    group.forEach(i=>pointToNode[i]=id);
-  }
-
-  roads.forEach((stroke,ri)=>{
-    let prev=-1;
-    stroke.forEach((p,pi)=>{
-      const idx=all.findIndex(q=>q.ri===ri&&q.pi===pi);
-      const nid=pointToNode[idx];
-      if(prev!==-1&&prev!==nid){
-        const a=Math.min(prev,nid),b=Math.max(prev,nid);
-        let edge=edges.find(e=>e.a===a&&e.b===b);
-        if(!edge){
-          edges.push({
-            a,b,
-            length:dist(nodes[a],nodes[b]),
-            cars:0,
-            congestion:0
-          });
-        }
-      }
-      prev=nid;
-    });
-  });
+if(hit){
+splits[i].push({t:hit.t,x:hit.x,y:hit.y});
+splits[j].push({t:hit.u,x:hit.x,y:hit.y});
+continue;
 }
 
-function dijkstra(start,end){
-  const N=nodes.length;
-  if(start<0||end<0||start>=N||end>=N)return null;
-  const ds=Array(N).fill(Infinity);
-  const prev=Array(N).fill(-1);
-  const visited=Array(N).fill(false);
-  ds[start]=0;
+const endpointsA=[
+{x:a.x1,y:a.y1,t:0},
+{x:a.x2,y:a.y2,t:1}
+];
+const endpointsB=[
+{x:b.x1,y:b.y1,t:0},
+{x:b.x2,y:b.y2,t:1}
+];
 
-  for(let step=0;step<N;step++){
-    let u=-1,best=Infinity;
-    for(let i=0;i<N;i++){
-      if(!visited[i]&&ds[i]<best){
-        best=ds[i];
-        u=i;
-      }
-    }
-    if(u<0)break;
-    if(u===end)break;
-    visited[u]=true;
-
-    for(const e of edges){
-      const v=e.a===u?e.b:e.b===u?e.a:-1;
-      if(v<0)continue;
-      const lightPenalty=lights.some(l=>!l.green&&dist(l,nodes[v])<30)?70:0;
-      const cost=e.length*(1+e.cars*.35)+lightPenalty;
-      if(ds[u]+cost<ds[v]){
-        ds[v]=ds[u]+cost;
-        prev[v]=u;
-      }
-    }
-  }
-
-  if(!Number.isFinite(ds[end]))return null;
-  const path=[];
-  for(let cur=end;cur!==-1;cur=prev[cur])path.push(cur);
-  return path.reverse();
+for(const p of endpointsA){
+const d=pointSegmentDistance(p,{x:b.x1,y:b.y1},{x:b.x2,y:b.y2});
+if(d<12){
+const dx=b.x2-b.x1,dy=b.y2-b.y1;
+const den=dx*dx+dy*dy;
+if(den>0){
+const t=clamp(((p.x-b.x1)*dx+(p.y-b.y1)*dy)/den,0,1);
+const q={x:b.x1+t*dx,y:b.y1+t*dy};
+splits[i].push({t:p.t,x:q.x,y:q.y});
+splits[j].push({t,x:q.x,y:q.y});
+}
+}
 }
 
-function spawnCar(){
-  if(cars.length>=MAX_CARS||nodes.length<2)return;
-  const start=Math.floor(Math.random()*nodes.length);
-  let end=Math.floor(Math.random()*nodes.length);
-  if(end===start)end=(end+1)%nodes.length;
-  const path=dijkstra(start,end);
-  if(path&&path.length>1)cars.push(makeCar(path));
+for(const p of endpointsB){
+const d=pointSegmentDistance(p,{x:a.x1,y:a.y1},{x:a.x2,y:a.y2});
+if(d<12){
+const dx=a.x2-a.x1,dy=a.y2-a.y1;
+const den=dx*dx+dy*dy;
+if(den>0){
+const t=clamp(((p.x-a.x1)*dx+(p.y-a.y1)*dy)/den,0,1);
+const q={x:a.x1+t*dx,y:a.y1+t*dy};
+splits[j].push({t:p.t,x:q.x,y:q.y});
+splits[i].push({t,x:q.x,y:q.y});
+}
+}
+}
+}
 }
 
-function updateCars(dt){
-  edges.forEach(e=>{
-    e.cars=0;
-    e.congestion=0;
-  });
-
-  cars.forEach(car=>{
-    if(car.idx>=car.path.length-1)return;
-    const edge=edges.find(e=>
-      (e.a===car.path[car.idx]&&e.b===car.path[car.idx+1])||
-      (e.b===car.path[car.idx]&&e.a===car.path[car.idx+1])
-    );
-    if(edge)edge.cars++;
-  });
-
-  cars.forEach(car=>{
-    if(car.idx>=car.path.length-1)return;
-    const a=nodes[car.path[car.idx]];
-    const b=nodes[car.path[car.idx+1]];
-    const edge=edges.find(e=>
-      (e.a===car.path[car.idx]&&e.b===car.path[car.idx+1])||
-      (e.b===car.path[car.idx]&&e.a===car.path[car.idx+1])
-    );
-
-    let speed=car.baseSpeed;
-    if(edge&&edge.cars>JAM_THRESHOLD){
-      speed*=Math.max(.18,1-(edge.cars-JAM_THRESHOLD)*.16);
-    }
-
-    const light=lights.find(l=>dist(l,b)<28);
-    if(light&&!light.green)speed=0;
-
-    car.speed=speed;
-    if(speed<2)car.wait+=dt;
-    else car.wait=Math.max(0,car.wait-dt*.5);
-
-    if(edge&&speed<35)edge.congestion+=1;
-
-    const length=dist(a,b);
-    car.t+=(speed*dt)/Math.max(length,1);
-    if(car.t>=1){
-      car.idx++;
-      car.t=0;
-    }
-  });
-
-  cars=cars.filter(c=>c.idx<c.path.length-1);
+function getNode(p){
+let n=nodes.find(n=>distance(n,p)<9);
+if(n){
+n.x=(n.x+p.x)/2;
+n.y=(n.y+p.y)/2;
+return n;
+}
+n={id:nodes.length,x:p.x,y:p.y,links:[]};
+nodes.push(n);
+return n;
 }
 
-function updateLights(dt){
-  lights.forEach(l=>{
-    l.timer+=dt;
-    if(l.timer>3.5){
-      l.timer=0;
-      l.green=!l.green;
-    }
-  });
+for(let i=0;i<segs.length;i++){
+const s=splits[i].sort((a,b)=>a.t-b.t);
+const clean=[];
+for(const p of s){
+if(!clean.length||Math.abs(p.t-clean[clean.length-1].t)>0.001){
+clean.push(p);
+}
+}
+for(let k=0;k<clean.length-1;k++){
+const a=getNode(clean[k]);
+const b=getNode(clean[k+1]);
+if(a.id===b.id||distance(a,b)<12)continue;
+const exists=edges.some(e=>
+(e.a===a&&e.b===b)||(e.a===b&&e.b===a)
+);
+if(exists)continue;
+const e={id:edges.length,a,b,length:distance(a,b),cars:[]};
+edges.push(e);
+a.links.push({node:b,edge:e});
+b.links.push({node:a,edge:e});
+}
+}
 }
 
-function getCarPos(car){
-  const a=nodes[car.path[car.idx]];
-  const b=nodes[car.path[Math.min(car.idx+1,car.path.length-1)]];
-  if(!a||!b)return{x:0,y:0};
-  return{
-    x:a.x+(b.x-a.x)*car.t,
-    y:a.y+(b.y-a.y)*car.t
-  };
+function seedCars(){
+cars=[];
+if(!edges.length)return;
+const count=Math.min(20,Math.max(8,Math.floor(edges.length*0.65)));
+for(let i=0;i<count;i++){
+const e=edges[Math.floor(Math.random()*edges.length)];
+const dir=Math.random()<0.5;
+const from=dir?e.a:e.b;
+const to=dir?e.b:e.a;
+cars.push({
+edge:e,from,to,
+progress:Math.random()*0.85,
+speed:35+Math.random()*20,
+color:["#f5f7fa","#e4eaf0","#d8e8f8","#c8d9e8","#f0d7c5"][i%5],
+length:12,width:6,
+wait:0
+});
+}
+}
+
+function setRoadMode(value){
+roadMode=value;
+roadBtn.classList.toggle("active",value);
+normalBtn.classList.toggle("active",!value);
+document.getElementById("notice").textContent=value
+?"道路を引くモード：道路の端から端までドラッグ。既存道路との交差は自動で接続。"
+:"車は自動で走行中。道路を追加するには「道路を引く」を押す。";
+}
+
+roadBtn.addEventListener("click",()=>setRoadMode(true));
+normalBtn.addEventListener("click",()=>setRoadMode(false));
+
+function resetGame(){
+roads=initialRoads.map(r=>({
+x1:r[0],y1:r[1],x2:r[2],y2:r[3]
+}));
+elapsed=0;
+totalRoads=roads.length;
+buildGraph();
+seedCars();
+setRoadMode(false);
+}
+
+resetBtn.addEventListener("click",resetGame);
+
+function pointerPos(e){
+const r=canvas.getBoundingClientRect();
+return {x:e.clientX-r.left,y:e.clientY-r.top};
+}
+
+function snapPoint(p){
+let best=null,bestD=16;
+for(const n of nodes){
+const d=distance(p,n);
+if(d<bestD){bestD=d;best={x:n.x,y:n.y};}
+}
+if(best)return best;
+
+for(const r of roads){
+const s=pxRoad(r);
+const d=pointSegmentDistance(p,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2});
+if(d<12){
+const dx=s.x2-s.x1,dy=s.y2-s.y1;
+const den=dx*dx+dy*dy;
+if(den>0){
+const t=clamp(((p.x-s.x1)*dx+(p.y-s.y1)*dy)/den,0,1);
+return {x:s.x1+t*dx,y:s.y1+t*dy};
+}
+}
+}
+return p;
+}
+
+canvas.addEventListener("pointerdown",e=>{
+if(!roadMode)return;
+drawing=true;
+drawStart=snapPoint(pointerPos(e));
+drawEnd=pointerPos(e);
+canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener("pointermove",e=>{
+if(drawing)drawEnd=pointerPos(e);
+});
+
+canvas.addEventListener("pointerup",e=>{
+if(!drawing)return;
+drawing=false;
+const end=snapPoint(pointerPos(e));
+const start=drawStart;
+if(start&&end&&distance(start,end)>35){
+roads.push({
+x1:clamp(start.x/W,0,1),
+y1:clamp(start.y/H,0,1),
+x2:clamp(end.x/W,0,1),
+y2:clamp(end.y/H,0,1)
+});
+totalRoads=roads.length;
+buildGraph();
+seedCars();
+}
+drawStart=null;
+drawEnd=null;
+});
+
+function edgeCrowding(edge,car){
+let count=0;
+for(const other of cars){
+if(other===car||other.edge!==edge)continue;
+if(Math.abs(other.progress-car.progress)<0.16)count++;
+}
+return count;
+}
+
+function chooseNext(car){
+const choices=car.to.links.filter(l=>l.node!==car.from);
+const options=choices.length?choices:car.to.links;
+if(!options.length)return null;
+
+let best=options[0];
+let bestScore=-Infinity;
+for(const option of options){
+const occupancy=cars.filter(c=>c!==car&&c.edge===option.edge).length;
+const score=Math.random()*3-occupancy*1.4;
+if(score>bestScore){bestScore=score;best=option;}
+}
+return best;
+}
+
+function update(dt){
+elapsed+=dt;
+for(const car of cars){
+const crowd=edgeCrowding(car.edge,car);
+const targetSpeed=Math.max(5,car.speed-crowd*12);
+const edgeLength=Math.max(1,car.edge.length);
+car.progress+=targetSpeed*dt/edgeLength*0.55;
+
+if(car.progress>=1){
+const next=chooseNext(car);
+if(!next){
+car.progress=0;
+continue;
+}
+car.from=car.to;
+car.to=next.node;
+car.edge=next.edge;
+car.progress=0.001;
+}
+}
+}
+
+function drawRoads(){
+ctx.lineCap="round";
+ctx.lineJoin="round";
+for(const r of roads){
+const s=pxRoad(r);
+ctx.beginPath();
+ctx.moveTo(s.x1,s.y1);
+ctx.lineTo(s.x2,s.y2);
+ctx.strokeStyle="#3b4651";
+ctx.lineWidth=23;
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(s.x1,s.y1);
+ctx.lineTo(s.x2,s.y2);
+ctx.strokeStyle="#66727e";
+ctx.lineWidth=19;
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(s.x1,s.y1);
+ctx.lineTo(s.x2,s.y2);
+ctx.strokeStyle="#d3d8dd";
+ctx.lineWidth=1;
+ctx.setLineDash([9,9]);
+ctx.stroke();
+ctx.setLineDash([]);
+}
+
+for(const n of nodes){
+if(n.links.length<2)continue;
+ctx.beginPath();
+ctx.arc(n.x,n.y,8,0,Math.PI*2);
+ctx.fillStyle="#4b99d8";
+ctx.fill();
+ctx.strokeStyle="#a8d9ff";
+ctx.lineWidth=1.5;
+ctx.stroke();
+}
 }
 
 function drawCar(car){
-  const p=getCarPos(car);
-  const a=nodes[car.path[car.idx]];
-  const b=nodes[car.path[Math.min(car.idx+1,car.path.length-1)]];
-  if(!a||!b)return;
+const x=car.from.x+(car.to.x-car.from.x)*car.progress;
+const y=car.from.y+(car.to.y-car.from.y)*car.progress;
+const angle=Math.atan2(car.to.y-car.from.y,car.to.x-car.from.x);
 
-  const angle=Math.atan2(b.y-a.y,b.x-a.x);
-  const L=23,B=12;
+ctx.save();
+ctx.translate(x,y);
+ctx.rotate(angle);
 
-  ctx.save();
-  ctx.translate(p.x,p.y);
-  ctx.rotate(angle);
+const crowded=edgeCrowding(car.edge,car)>0;
+ctx.fillStyle=crowded?"#f5c451":car.color;
+ctx.strokeStyle="#202832";
+ctx.lineWidth=1;
 
-  ctx.fillStyle='rgba(0,0,0,.38)';
-  ctx.beginPath();
-  ctx.ellipse(1,2,L*.53,B*.7,0,0,Math.PI*2);
-  ctx.fill();
+ctx.beginPath();
+ctx.roundRect(-7,-3.6,14,7.2,2);
+ctx.fill();
+ctx.stroke();
 
-  ctx.fillStyle=car.speed<20?'#d94b45':car.color;
-  ctx.strokeStyle='#11171b';
-  ctx.lineWidth=1.2;
-  ctx.beginPath();
-  ctx.roundRect(-L/2,-B/2,L,B,3.5);
-  ctx.fill();
-  ctx.stroke();
+ctx.fillStyle="#6b9ebc";
+ctx.beginPath();
+ctx.roundRect(-2.5,-2.5,5.5,5,1);
+ctx.fill();
 
-  ctx.fillStyle='#b9d9e7';
-  ctx.beginPath();
-  ctx.roundRect(-2.8,-B/2+1.4,8,B-2.8,2);
-  ctx.fill();
+ctx.fillStyle="#fff1b8";
+ctx.fillRect(5,-2.5,1.5,1.5);
+ctx.fillRect(5,1,1.5,1.5);
 
-  ctx.fillStyle='#f9f0c5';
-  ctx.fillRect(L/2-2,-B/2+1.2,1.8,2.2);
-  ctx.fillRect(L/2-2,B/2-3.4,1.8,2.2);
+ctx.fillStyle="#d65a57";
+ctx.fillRect(-7,-2.5,1.5,1.5);
+ctx.fillRect(-7,1,1.5,1.5);
 
-  ctx.fillStyle='#f15b53';
-  ctx.fillRect(-L/2,-B/2+1.2,1.6,2.2);
-  ctx.fillRect(-L/2,B/2-3.4,1.6,2.2);
+ctx.restore();
+}
 
-  ctx.fillStyle='#22282c';
-  ctx.fillRect(-L/2+4,-B/2-1,4,2);
-  ctx.fillRect(4,-B/2-1,4,2);
-  ctx.fillRect(-L/2+4,B/2-1,4,2);
-  ctx.fillRect(4,B/2-1,4,2);
-
-  if(car.speed<20){
-    ctx.strokeStyle='rgba(255,90,70,.9)';
-    ctx.lineWidth=1.5;
-    ctx.strokeRect(-L/2-2,-B/2-2,L+4,B+4);
-  }
-
-  ctx.restore();
+function drawPreview(){
+if(!drawing||!drawStart||!drawEnd)return;
+ctx.beginPath();
+ctx.moveTo(drawStart.x,drawStart.y);
+ctx.lineTo(drawEnd.x,drawEnd.y);
+ctx.strokeStyle="#67c3ff";
+ctx.lineWidth=5;
+ctx.setLineDash([7,5]);
+ctx.stroke();
+ctx.setLineDash([]);
 }
 
 function draw(){
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#283238';
-  ctx.fillRect(0,uiHeight,W,H-uiHeight);
+ctx.clearRect(0,0,W,H);
+ctx.fillStyle="#222b34";
+ctx.fillRect(0,0,W,H);
 
-  const grid=36;
-  ctx.strokeStyle='rgba(255,255,255,.035)';
-  ctx.lineWidth=1;
-  for(let x=0;x<W;x+=grid){
-    ctx.beginPath();
-    ctx.moveTo(x,uiHeight);
-    ctx.lineTo(x,H);
-    ctx.stroke();
-  }
-  for(let y=uiHeight;y<H;y+=grid){
-    ctx.beginPath();
-    ctx.moveTo(0,y);
-    ctx.lineTo(W,y);
-    ctx.stroke();
-  }
-
-  roads.forEach(stroke=>{
-    ctx.beginPath();
-    ctx.strokeStyle='#101519';
-    ctx.lineWidth=24;
-    ctx.lineCap='round';
-    ctx.lineJoin='round';
-    stroke.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.strokeStyle='#667078';
-    ctx.lineWidth=18;
-    stroke.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.strokeStyle='rgba(255,255,255,.35)';
-    ctx.lineWidth=1.2;
-    ctx.setLineDash([9,8]);
-    stroke.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
-    ctx.stroke();
-    ctx.setLineDash([]);
-  });
-
-  edges.forEach(e=>{
-    const congestion=Math.max(e.cars-JAM_THRESHOLD,e.congestion);
-    if(congestion>0){
-      const a=nodes[e.a],b=nodes[e.b];
-      ctx.beginPath();
-      ctx.strokeStyle=congestion>2?'rgba(255,55,55,.92)':'rgba(255,160,50,.8)';
-      ctx.lineWidth=congestion>2?20:17;
-      ctx.lineCap='round';
-      ctx.moveTo(a.x,a.y);
-      ctx.lineTo(b.x,b.y);
-      ctx.stroke();
-    }
-  });
-
-  nodes.forEach(n=>{
-    const degree=edges.filter(e=>e.a===n.id||e.b===n.id).length;
-    if(degree>2){
-      ctx.beginPath();
-      ctx.fillStyle='#d4d9dc';
-      ctx.arc(n.x,n.y,5,0,Math.PI*2);
-      ctx.fill();
-      ctx.strokeStyle='#273037';
-      ctx.lineWidth=2;
-      ctx.stroke();
-    }
-  });
-
-  lights.forEach(l=>{
-    ctx.beginPath();
-    ctx.fillStyle='rgba(0,0,0,.35)';
-    ctx.arc(l.x,l.y+2,15,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.fillStyle=l.green?'#37dc88':'#ff4e52';
-    ctx.beginPath();
-    ctx.arc(l.x,l.y,11,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.strokeStyle='#fff';
-    ctx.lineWidth=2;
-    ctx.stroke();
-
-    ctx.fillStyle='#182126';
-    ctx.beginPath();
-    ctx.arc(l.x,l.y,3,0,Math.PI*2);
-    ctx.fill();
-  });
-
-  cars.forEach(drawCar);
-
-  if(currentStroke.length>1){
-    ctx.beginPath();
-    ctx.strokeStyle='#6de0c1';
-    ctx.lineWidth=18;
-    ctx.lineCap='round';
-    ctx.lineJoin='round';
-    currentStroke.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
-    ctx.stroke();
-  }
-
-  if(!running){
-    ctx.fillStyle='rgba(0,0,0,.5)';
-    ctx.font='12px system-ui';
-    ctx.textAlign='left';
-    ctx.fillText('道路を追加して迂回路を作ろう',12,H-12);
-  }
+ctx.strokeStyle="#2c3741";
+ctx.lineWidth=1;
+for(let x=0;x<W;x+=28){
+ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+}
+for(let y=0;y<H;y+=28){
+ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
 }
 
-function loop(t){
-  const dt=lastTime?Math.min((t-lastTime)/1000,.05):0;
-  lastTime=t;
+drawRoads();
+for(const car of cars)drawCar(car);
+drawPreview();
 
-  if(running){
-    spawnTimer+=dt;
-    if(spawnTimer>CAR_SPAWN_INTERVAL){
-      spawnTimer=0;
-      spawnCar();
-    }
+document.getElementById("carCount").textContent=cars.length;
+document.getElementById("roadCount").textContent=roads.length;
 
-    updateLights(dt);
-    updateCars(dt);
+let slow=0;
+for(const e of edges){
+if(cars.filter(c=>c.edge===e).length>=3)slow++;
+}
+document.getElementById("jamCount").textContent=slow;
 
-    const avg=cars.length?cars.reduce((sum,c)=>sum+c.speed,0)/cars.length:0;
-    avgSpeedEl.textContent=avg.toFixed(1);
-
-    if(avg>=SMOOTH_SPEED&&cars.length>=5)smoothTimer+=dt;
-    else smoothTimer=Math.max(0,smoothTimer-dt*.5);
-
-    clearTimeEl.textContent=smoothTimer.toFixed(1);
-
-    if(smoothTimer>=SMOOTH_NEEDED){
-      running=false;
-      messageEl.textContent='クリア！渋滞を12秒間抑えた。';
-      messageEl.style.color='#65e5a9';
-      btnStart.disabled=false;
-      btnStart.textContent='再開';
-    }
-  }
-
-  draw();
-  requestAnimationFrame(loop);
+let speedSum=0;
+for(const c of cars){
+speedSum+=Math.max(5,c.speed-edgeCrowding(c.edge,c)*12);
+}
+document.getElementById("avgSpeed").textContent=cars.length
+?Math.round(speedSum/cars.length):0;
 }
 
+function frame(time){
+if(!lastTime)lastTime=time;
+const dt=Math.min((time-lastTime)/1000,0.04);
+lastTime=time;
+update(dt);
+draw();
+requestAnimationFrame(frame);
+}
+
+resetGame();
 resize();
-updateBudget();
-requestAnimationFrame(loop);
+window.addEventListener("resize",resize);
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>
