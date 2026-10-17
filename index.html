@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic Flow</title>
+<title>交通フロー</title>
 <style>
 *{box-sizing:border-box}
 :root{color-scheme:dark}
@@ -17,6 +16,8 @@ main{max-width:1100px;margin:auto;padding:14px}
 button{border:1px solid #485666;background:#202a35;color:#edf2f7;border-radius:8px;padding:10px 13px;font-size:14px;cursor:pointer}
 button.active{background:#176b9c;border-color:#4bb5f0}
 button:hover{filter:brightness(1.15)}
+.status{font-size:13px;color:#cfe3f2;background:#19212a;border:1px solid #303b47;border-radius:9px;padding:9px 12px;margin-bottom:12px}
+.status.ok{color:#8be0b0;border-color:#2f6b4c}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
 .stat{background:#19212a;border:1px solid #303b47;border-radius:9px;padding:10px}
 .stat span{display:block;font-size:12px;color:#aeb9c5;margin-bottom:5px}
@@ -31,17 +32,17 @@ canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
 </head>
 <body>
 <header>
-<h1>Traffic Flow</h1>
+<h1>交通フロー</h1>
 <p>道路をつなぎ、車を安全にゴールへ導こう。</p>
 </header>
 <main>
 <div class="toolbar">
 <button id="straight" class="active">直線道路</button>
 <button id="freehand">フリーハンド</button>
-<button id="run">運転開始</button>
 <button id="undo">道路を1本戻す</button>
 <button id="reset">リセット</button>
 </div>
+<div id="status" class="status">スタートからゴールまで道路をつなぐと、自動で車が走り出します</div>
 <div class="stats">
 <div class="stat"><span>走行中の車</span><strong id="moving">0</strong></div>
 <div class="stat"><span>ゴール到着</span><strong id="arrived">0</strong></div>
@@ -55,17 +56,20 @@ canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
 <span><i class="dot" style="background:#626c76"></i>通常</span>
 <span><i class="dot" style="background:#f2a23a"></i>混雑</span>
 <span><i class="dot" style="background:#e94c4c"></i>渋滞</span>
-<span>● START　 ◆ 中間地点　 ● GOAL</span>
+<span><i class="dot" style="background:#3ddc84"></i>青信号</span>
+<span><i class="dot" style="background:#ff4d4d"></i>赤信号</span>
+<span>● スタート　 ◆ 中間地点　 ● ゴール</span>
 </div>
-<p class="hint">直線道路は2か所をタップして作成。フリーハンドはドラッグして描画。道路同士を交差させると接続されます。中間地点はリセット時にランダムで配置されます。</p>
+<p class="hint">直線道路は2か所をタップして作成。フリーハンドはドラッグして描画。道路が交差・接続した場所は交差点になり、信号が付きます。スタートからゴールまで道路がつながると自動で運転が始まります。中間地点はリセット時にランダムで配置されます。</p>
 </main>
 <script>
 const canvas=document.getElementById("game");
 const ctx=canvas.getContext("2d");
 const W=1000,H=600;
 const $=id=>document.getElementById(id);
-let roads=[],cars=[],nodes=[],edges=[],running=false,mode="straight";
+let roads=[],cars=[],nodes=[],edges=[],mode="straight";
 let firstPoint=null,stroke=[],drawing=false,lastTime=0,spawnTimer=0,arrived=0;
+let connected=false,clock=0;
 let mid={x:500,y:180};
 const START={x:55,y:300};
 const GOAL={x:945,y:300};
@@ -82,13 +86,18 @@ function randomMid(){
 
 function resizeCanvas(){
   const rect=canvas.getBoundingClientRect();
-  const dpr=Math.min(window.devicePixelRatio||1,2);
-  canvas.width=W*dpr;
-  canvas.height=H*dpr;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(!rect.width)return;
+  const dpr=window.devicePixelRatio||1;
+  const pw=Math.round(rect.width*dpr);
+  const ph=Math.round(pw*H/W);
+  if(canvas.width!==pw||canvas.height!==ph){
+    canvas.width=pw;
+    canvas.height=ph;
+  }
+  const scale=pw/W;
+  ctx.setTransform(scale,0,0,scale,0,0);
   draw();
 }
-window.addEventListener("resize",resizeCanvas);
 
 function screenPoint(e){
   const r=canvas.getBoundingClientRect();
@@ -136,9 +145,8 @@ function addRoad(points){
   cleaned[0]=snapPoint(cleaned[0]);
   cleaned[cleaned.length-1]=snapPoint(cleaned[cleaned.length-1]);
   roads.push(cleaned);
-  rebuildGraph();
   cars=[];
-  spawnTimer=0;
+  rebuildGraph();
   draw();
 }
 function smoothStroke(points){
@@ -175,6 +183,19 @@ function smoothStroke(points){
   }
   simplified.push(smoothed[smoothed.length-1]);
   return simplified;
+}
+
+function signalGroup(node,from){
+  const ang=Math.atan2(from.y-node.y,from.x-node.x);
+  let d=Math.abs(ang-node.ref)%Math.PI;
+  if(d>Math.PI/2)d=Math.PI-d;
+  return d<Math.PI/4?0:1;
+}
+function isGreen(node,group){
+  if(!node.hasG[0]||!node.hasG[1])return true;
+  const p=(clock+node.offset)%8;
+  if(group===0)return p<3.5;
+  return p>=4&&p<7.5;
 }
 
 function rebuildGraph(){
@@ -233,6 +254,28 @@ function rebuildGraph(){
       a.links.push({node:b,edge});
       b.links.push({node:a,edge});
     }
+  }
+  for(const n of nodes){
+    n.signal=n.links.length>=3;
+    if(n.signal){
+      n.ref=Math.atan2(n.links[0].node.y-n.y,n.links[0].node.x-n.x);
+      n.offset=(n.x*.37+n.y*.61)%8;
+      n.hasG=[false,false];
+      for(const l of n.links)n.hasG[signalGroup(n,l.node)]=true;
+    }
+  }
+  connected=!!routeForCar();
+  spawnTimer=2.7;
+  updateStatus();
+}
+function updateStatus(){
+  const s=$("status");
+  if(connected){
+    s.textContent="運行中：スタートとゴールがつながっています";
+    s.className="status ok";
+  }else{
+    s.textContent="スタートからゴールまで道路をつなぐと、自動で車が走り出します";
+    s.className="status";
   }
 }
 function closestNode(p,max=35){
@@ -300,7 +343,8 @@ function edgeTraffic(){
   }
 }
 function update(dt){
-  if(!running)return;
+  clock+=dt;
+  if(!connected)return;
   spawnTimer+=dt;
   if(spawnTimer>=2.7&&cars.length<14){
     spawnTimer=0;
@@ -310,18 +354,30 @@ function update(dt){
   for(const c of cars){
     const step=c.path[c.index];
     if(!step)continue;
+    const edge=step.edge;
     let speed=c.speed;
-    const traffic=step.edge.cars;
+    const traffic=edge.cars;
     if(traffic>=2)speed*=.72;
     if(traffic>=4)speed*=.45;
+    const gap=Math.min(18/edge.length,.4);
+    let limit=Infinity;
     for(const other of cars){
       if(other===c)continue;
       const os=other.path[other.index];
-      if(!os||os.edge!==step.edge||other.index!==c.index)continue;
+      if(!os||os.edge!==edge||os.from!==step.from)continue;
       const delta=other.t-c.t;
-      if(delta>.005&&delta<.16)speed*=Math.max(.12,delta/.16);
+      if(delta>0&&delta<.2){
+        speed*=Math.max(.15,delta/.2);
+        limit=Math.min(limit,Math.max(c.t,other.t-gap));
+      }
     }
-    c.t+=speed*dt/step.edge.length;
+    let nextT=c.t+speed*dt/edge.length;
+    const node=step.to;
+    if(node.signal&&!isGreen(node,signalGroup(node,step.from))){
+      const stopT=1-Math.min(26,edge.length*.4)/edge.length;
+      if(c.t<=stopT)nextT=Math.min(nextT,stopT);
+    }
+    c.t=Math.min(nextT,limit);
     if(c.t>=1){
       c.index++;
       c.t=0;
@@ -353,20 +409,45 @@ function drawGrid(){
   for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
   for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
 }
-function drawRoad(road){
-  for(let i=0;i<road.length-1;i++){
-    const a=road[i],b=road[i+1];
-    const e=edges.find(v=>(dist(v.a,a)<4&&dist(v.b,b)<4)||(dist(v.a,b)<4&&dist(v.b,a)<4));
-    const count=e?e.cars:0;
-    const color=count>=4?"#e94c4c":count>=2?"#f2a23a":"#626c76";
-    ctx.lineCap="round";ctx.lineJoin="round";
-    ctx.strokeStyle="#101419";ctx.lineWidth=35;
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-    ctx.strokeStyle=color;ctx.lineWidth=29;
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-    ctx.strokeStyle="#d4d8d8";ctx.lineWidth=1.4;ctx.setLineDash([10,10]);
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-    ctx.setLineDash([]);
+function drawRoads(){
+  ctx.lineCap="round";ctx.lineJoin="round";
+  ctx.strokeStyle="#101419";ctx.lineWidth=35;
+  for(const e of edges){
+    ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+  }
+  ctx.fillStyle="#101419";
+  for(const n of nodes){
+    if(n.signal){ctx.beginPath();ctx.arc(n.x,n.y,18,0,Math.PI*2);ctx.fill()}
+  }
+  ctx.lineWidth=29;
+  for(const e of edges){
+    ctx.strokeStyle=e.cars>=4?"#e94c4c":e.cars>=2?"#f2a23a":"#626c76";
+    ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+  }
+  ctx.lineCap="butt";
+  ctx.strokeStyle="#d4d8d8";ctx.lineWidth=1.4;ctx.setLineDash([10,10]);
+  for(const e of edges){
+    ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle="#626c76";
+  for(const n of nodes){
+    if(n.signal){ctx.beginPath();ctx.arc(n.x,n.y,15.5,0,Math.PI*2);ctx.fill()}
+  }
+}
+function drawSignals(){
+  for(const n of nodes){
+    if(!n.signal)continue;
+    for(const l of n.links){
+      const d=dist(n,l.node);
+      if(!d)continue;
+      const ux=(l.node.x-n.x)/d,uy=(l.node.y-n.y)/d;
+      const px=n.x+ux*27-uy*11,py=n.y+uy*27+ux*11;
+      const green=isGreen(n,signalGroup(n,l.node));
+      ctx.fillStyle=green?"#3ddc84":"#ff4d4d";
+      ctx.strokeStyle="#101419";ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(px,py,4.5,0,Math.PI*2);ctx.fill();ctx.stroke();
+    }
   }
 }
 function drawMarker(p,label,color,shape="circle"){
@@ -376,7 +457,7 @@ function drawMarker(p,label,color,shape="circle"){
   if(shape==="diamond"){ctx.moveTo(0,-13);ctx.lineTo(13,0);ctx.lineTo(0,13);ctx.lineTo(-13,0);ctx.closePath()}
   else ctx.arc(0,0,12,0,Math.PI*2);
   ctx.fill();ctx.stroke();
-  ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.textAlign="center";
+  ctx.fillStyle="#fff";ctx.font='bold 13px "Noto Sans JP",Arial,sans-serif';ctx.textAlign="center";
   ctx.fillText(label,0,-21);
   ctx.restore();
 }
@@ -392,16 +473,12 @@ function drawCar(c){
 }
 function draw(){
   drawGrid();
-  drawRoadsOnly();
-  for(const n of nodes){
-    if(n.links.length>2){
-      ctx.fillStyle="#626c76";ctx.beginPath();ctx.arc(n.x,n.y,14,0,Math.PI*2);ctx.fill();
-    }
-  }
+  drawRoads();
+  drawSignals();
   for(const c of cars)drawCar(c);
-  drawMarker(START,"START","#299e72");
-  drawMarker(mid,"MID","#d59b30","diamond");
-  drawMarker(GOAL,"GOAL","#347fdb");
+  drawMarker(START,"スタート","#299e72");
+  drawMarker(mid,"中間","#d59b30","diamond");
+  drawMarker(GOAL,"ゴール","#347fdb");
   if(firstPoint){
     ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,7,0,Math.PI*2);ctx.stroke();
   }
@@ -411,9 +488,6 @@ function draw(){
     for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);
     ctx.stroke();ctx.setLineDash([]);
   }
-}
-function drawRoadsOnly(){
-  for(const road of roads)drawRoad(road);
 }
 canvas.addEventListener("pointerdown",e=>{
   const p=screenPoint(e);
@@ -452,18 +526,12 @@ $("freehand").onclick=()=>{
   $("freehand").classList.add("active");$("straight").classList.remove("active");
   draw();
 };
-$("run").onclick=()=>{
-  running=!running;
-  $("run").textContent=running?"一時停止":"運転開始";
-  $("run").classList.toggle("active",running);
-};
 $("undo").onclick=()=>{
   roads.pop();cars=[];rebuildGraph();draw();
 };
 $("reset").onclick=()=>{
   roads=[];cars=[];nodes=[];edges=[];arrived=0;spawnTimer=0;
-  firstPoint=null;stroke=[];drawing=false;running=false;randomMid();
-  $("run").textContent="運転開始";$("run").classList.remove("active");
+  firstPoint=null;stroke=[];drawing=false;randomMid();
   $("moving").textContent="0";$("arrived").textContent="0";
   $("speed").textContent="0";$("traffic").textContent="0";
   rebuildGraph();draw();
@@ -476,8 +544,10 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 randomMid();
-resizeCanvas();
 rebuildGraph();
+resizeCanvas();
+new ResizeObserver(resizeCanvas).observe(canvas);
+window.addEventListener("resize",resizeCanvas);
 requestAnimationFrame(loop);
 </script>
 </body>
