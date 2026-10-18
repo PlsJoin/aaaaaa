@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>交通フロー</title>
 <style>
 :root{--bg:#e6e1d3;--ink:#23272b;--mut:#6d6a60;--ac:#c9482a;--pn:#f4f1e8;--ln:#cbc4b1;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root{--bg:#121514;--ink:#e9e6dc;--mut:#8f8c82;--ac:#e8794f;--pn:#1e2221;--ln:#363b39}}
-html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;display:flex;flex-direction:column;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+html,body{height:100%;margin:0;touch-action:manipulation}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;display:flex;flex-direction:column;overflow:hidden;-webkit-user-select:none;user-select:none}
 #hud{display:flex;justify-content:space-between;padding:8px 14px 0;font-size:12px;color:var(--mut);white-space:nowrap}
 #hud b{color:var(--ink);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:3px}
 #msg{padding:2px 14px 0;height:18px;font-size:12px;color:var(--ac)}
@@ -60,6 +60,13 @@ let firstPoint=null,stroke=[],drawing=false,dragging=false,hover=null;
 let lastTime=0,spawnTimer=0,arrived=0,connected=false,clock=0,money=3000,scale=1,evT=14,rush=0,demand=0,rainT=0,rainI=0,seed=1;
 let mid={x:500,y:180},obstacles=[],bg=null;
 const drops=Array.from({length:170},()=>({x:Math.random()*W,y:Math.random()*H,s:520+Math.random()*320}));
+
+let lastTap=0;
+document.addEventListener("touchend",e=>{
+  const now=Date.now();
+  if(now-lastTap<320)e.preventDefault();
+  lastTap=now;
+},{passive:false});
 
 function say(t){$("msg").textContent=t}
 function randomMid(){
@@ -365,11 +372,15 @@ function tickRoads(dt){
   const jam=edges.filter(e=>e.slow>=2).length;
   if(jam<2)demand+=dt*.014;
   else demand=Math.max(0,demand-dt*.03);
+  const toDestroy=[];
   for(const r of roads){
     if(r.repair>0){
       r.repair-=dt;
       if(r.repair<=0){r.wear=0;r.warned=false;say("補修完了。通行再開")}
-    }else r.wear=Math.min(100,r.wear+.1*dt);
+    }else{
+      r.wear=Math.min(100,r.wear+.1*dt);
+      if(r.wear>=100)toDestroy.push(r);
+    }
   }
   let closedNow=false;
   for(const e of edges){
@@ -381,10 +392,23 @@ function tickRoads(dt){
     if(e.closed&&!was){
       closedNow=true;
       if(e.flood)say("洪水！道路が冠水しました。水が引くまで迂回を");
-      else if(r.repair<=0)say("道路が崩壊！補修が必要です");
+      else if(r.repair<=0&&r.wear<100)say("道路が崩壊！補修が必要です");
     }
   }
-  if(closedNow)rerouteAll();
+  if(toDestroy.length){
+    for(const r of toDestroy){
+      const idx=roads.indexOf(r);
+      if(idx>=0){
+        roads.splice(idx,1);
+        say("道路が完全に破壊された！");
+        closedNow=true;
+      }
+    }
+  }
+  if(closedNow){
+    cars=[];
+    rebuildGraph();
+  }
   for(const r of roads){
     if(!r.warned&&r.wear>=70&&r.wear<100){r.warned=true;say("道が傷んできた。補修か迂回路を！")}
   }
@@ -628,6 +652,36 @@ function drawGround(){
     }
   }
 }
+function drawCracks(e,intensity){
+  const dx=e.b.x-e.a.x,dy=e.b.y-e.a.y;
+  const len=Math.hypot(dx,dy);
+  if(len<8)return;
+  const nx=-dy/len,ny=dx/len;
+  const segs=Math.max(2,Math.floor(len/18*intensity));
+  ctx.strokeStyle="#5a4030";
+  ctx.lineWidth=1.4+intensity*1.2;
+  ctx.globalAlpha=.35+intensity*.55;
+  ctx.setLineDash([]);
+  for(let i=0;i<segs;i++){
+    const t0=(i+.15+Math.sin(i*2.7)*.08)/segs;
+    const t1=Math.min(1,t0+.12+Math.random()*.08);
+    const off=(Math.sin(i*3.1+e.a.x)*.6+Math.cos(i*1.7)*.4)*6*intensity;
+    const x0=e.a.x+dx*t0+nx*off;
+    const y0=e.a.y+dy*t0+ny*off;
+    const x1=e.a.x+dx*t1+nx*(off+(Math.random()-.5)*4);
+    const y1=e.a.y+dy*t1+ny*(off+(Math.random()-.5)*4);
+    ctx.beginPath();
+    ctx.moveTo(x0,y0);
+    ctx.lineTo(x1,y1);
+    if(intensity>.6&&Math.random()>.4){
+      const bx=x1+nx*(3+Math.random()*4)*(Math.random()>.5?1:-1);
+      const by=y1+ny*(3+Math.random()*4)*(Math.random()>.5?1:-1);
+      ctx.lineTo(bx,by);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+}
 function drawRoads(){
   ctx.lineCap="round";
   ctx.strokeStyle=P.casing;ctx.lineWidth=30;
@@ -653,10 +707,9 @@ function drawRoads(){
       ctx.strokeStyle="#e9b23a";ctx.lineWidth=20;ctx.globalAlpha=.7;ctx.setLineDash([7,9]);
       ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
       ctx.setLineDash([]);ctx.globalAlpha=1;
-    }else if(w>=45){
-      ctx.strokeStyle="#8a6a3a";ctx.lineWidth=1.6;ctx.globalAlpha=Math.min(1,(w-40)/50);ctx.setLineDash([3,11]);
-      ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
-      ctx.setLineDash([]);ctx.globalAlpha=1;
+    }else if(w>=20){
+      const intensity=Math.min(1,(w-20)/80);
+      drawCracks(e,intensity);
     }
   }
 }
