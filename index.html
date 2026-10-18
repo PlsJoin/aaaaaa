@@ -2,109 +2,90 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>交通フロー</title>
 <style>
-*{box-sizing:border-box}
-:root{color-scheme:dark}
-body{margin:0;background:#101419;color:#edf2f7;font-family:Arial,"Noto Sans JP",sans-serif}
-header{padding:16px 18px;background:#171e26;border-bottom:1px solid #303b47}
-h1{font-size:22px;margin:0 0 5px}
-header p{margin:0;color:#aeb9c5;font-size:13px}
-main{max-width:1100px;margin:auto;padding:14px}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-button{border:1px solid #485666;background:#202a35;color:#edf2f7;border-radius:8px;padding:10px 13px;font-size:14px;cursor:pointer}
-button.active{background:#176b9c;border-color:#4bb5f0}
-button:hover{filter:brightness(1.15)}
-.status{font-size:13px;color:#cfe3f2;background:#19212a;border:1px solid #303b47;border-radius:9px;padding:9px 12px;margin-bottom:12px}
-.status.ok{color:#8be0b0;border-color:#2f6b4c}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
-.stat{background:#19212a;border:1px solid #303b47;border-radius:9px;padding:10px}
-.stat span{display:block;font-size:12px;color:#aeb9c5;margin-bottom:5px}
-.stat strong{font-size:20px}
-.canvas-wrap{position:relative;background:#18231f;border:1px solid #394a40;border-radius:10px;overflow:hidden}
-canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
-.hint{font-size:12px;line-height:1.7;color:#aeb9c5;margin:10px 2px}
-.legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:#c6d0da;margin-top:10px}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
-@media(max-width:600px){main{padding:9px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}button{flex:1}.stat strong{font-size:18px}h1{font-size:20px}}
+:root{--bg:#e6e1d3;--ink:#23272b;--mut:#6d6a60;--ac:#c9482a;--pn:#f4f1e8;--ln:#cbc4b1;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#121514;--ink:#e9e6dc;--mut:#8f8c82;--ac:#e8794f;--pn:#1e2221;--ln:#363b39}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;display:flex;flex-direction:column;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+#hud{display:flex;justify-content:space-between;padding:8px 14px 0;font-size:12px;color:var(--mut);white-space:nowrap}
+#hud b{color:var(--ink);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:3px}
+#msg{padding:2px 14px 0;height:18px;font-size:12px;color:var(--ac)}
+#stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 8px}
+canvas{display:block;border-radius:6px;touch-action:none}
+#bar{display:flex;gap:6px;padding:8px 8px 10px}
+button{flex:1;height:38px;padding:0;border:1px solid var(--ln);background:var(--pn);color:var(--ink);border-radius:6px;font:inherit;font-size:13px}
+button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button:active{opacity:.7}
 </style>
 </head>
 <body>
-<header>
-<h1>交通フロー</h1>
-<p>道路をつなぎ、車を安全にゴールへ導こう。</p>
-</header>
-<main>
-<div class="toolbar">
-<button id="straight" class="active">直線道路</button>
-<button id="freehand">フリーハンド</button>
-<button id="undo">道路を1本戻す</button>
+<div id="hud">
+<span>到着<b id="arrived">0</b></span>
+<span>渋滞<b id="jam">0</b></span>
+<span>予算 ¥<b id="money">0</b></span>
+<span>Lv<b id="lvl">1</b></span>
+</div>
+<div id="msg"></div>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="bar">
+<button id="straight" class="on">直線</button>
+<button id="free">自由</button>
+<button id="undo">戻す</button>
 <button id="reset">リセット</button>
 </div>
-<div id="status" class="status">スタートからゴールまで道路をつなぐと、自動で車が走り出します</div>
-<div class="stats">
-<div class="stat"><span>走行中の車</span><strong id="moving">0</strong></div>
-<div class="stat"><span>ゴール到着</span><strong id="arrived">0</strong></div>
-<div class="stat"><span>平均速度</span><strong id="speed">0</strong></div>
-<div class="stat"><span>渋滞区間</span><strong id="traffic">0</strong></div>
-</div>
-<div class="canvas-wrap">
-<canvas id="game" width="1000" height="600"></canvas>
-</div>
-<div class="legend">
-<span><i class="dot" style="background:#626c76"></i>通常</span>
-<span><i class="dot" style="background:#f2a23a"></i>混雑</span>
-<span><i class="dot" style="background:#e94c4c"></i>渋滞</span>
-<span><i class="dot" style="background:#3ddc84"></i>青信号</span>
-<span><i class="dot" style="background:#ff4d4d"></i>赤信号</span>
-<span>● スタート　 ◆ 中間地点　 ● ゴール</span>
-</div>
-<p class="hint">直線道路は2か所をタップして作成。フリーハンドはドラッグして描画。道路が交差・接続した場所は交差点になり、信号が付きます。スタートからゴールまで道路がつながると自動で運転が始まります。中間地点はリセット時にランダムで配置されます。</p>
-</main>
 <script>
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
-const W=1000,H=600;
 const $=id=>document.getElementById(id);
-let roads=[],cars=[],nodes=[],edges=[],mode="straight";
-let firstPoint=null,stroke=[],drawing=false,lastTime=0,spawnTimer=0,arrived=0;
-let connected=false,clock=0;
-let mid={x:500,y:180};
-const START={x:55,y:300};
-const GOAL={x:945,y:300};
+const cv=$("c"),ctx=cv.getContext("2d");
+const portrait=innerHeight>innerWidth*1.05;
+const W=portrait?600:1000,H=portrait?900:600;
+const START=portrait?{x:300,y:90}:{x:70,y:300};
+const GOAL=portrait?{x:300,y:810}:{x:930,y:300};
+const dark=matchMedia("(prefers-color-scheme:dark)").matches;
+const P=dark
+?{ground:"#1b1f1e",grid:"#232827",road:"#4d5356",casing:"#0c0e0e",mark:"#d8d2bf",j1:"#b57e32",j2:"#b5453a",ink:"#e9e6dc"}
+:{ground:"#eeeadf",grid:"#e0dbcc",road:"#4b5054",casing:"#25282b",mark:"#f1ecdd",j1:"#d08d37",j2:"#cc4a3d",ink:"#23272b"};
+const TYPES=[
+{k:"c",len:16,w:9,v:[85,115],cols:["#d9552b","#2f6fa3","#e0b43c","#f2efe6","#3f8f5f","#8a5ba8"]},
+{k:"t",len:27,w:10,v:[50,65],cols:["#e9e4d4","#8794a3"]},
+{k:"s",len:15,w:8,v:[125,155],cols:["#c0392b","#f0c419"]}
+];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const lerp=(a,b,t)=>a+(b-a)*t;
+let roads=[],cars=[],nodes=[],edges=[],mode="straight";
+let firstPoint=null,stroke=[],drawing=false,dragging=false,hover=null;
+let lastTime=0,spawnTimer=0,arrived=0,connected=false,clock=0,money=3000,scale=1,evT=14,rush=0;
+let mid={x:500,y:180};
 
+function say(t){$("msg").textContent=t}
 function randomMid(){
-  mid={x:280+Math.random()*440,y:100+Math.random()*400};
-  if(Math.abs(mid.y-START.y)<75)mid.y=mid.y<300?mid.y-80:mid.y+80;
-  mid.x=clamp(mid.x,230,770);
-  mid.y=clamp(mid.y,75,525);
-}
-
-function resizeCanvas(){
-  const rect=canvas.getBoundingClientRect();
-  if(!rect.width)return;
-  const dpr=window.devicePixelRatio||1;
-  const pw=Math.round(rect.width*dpr);
-  const ph=Math.round(pw*H/W);
-  if(canvas.width!==pw||canvas.height!==ph){
-    canvas.width=pw;
-    canvas.height=ph;
+  if(portrait){
+    mid={x:110+Math.random()*380,y:260+Math.random()*380};
+    if(Math.abs(mid.x-300)<100)mid.x+=mid.x<300?-100:100;
+    mid.x=clamp(mid.x,70,530);
+  }else{
+    mid={x:260+Math.random()*480,y:90+Math.random()*420};
+    if(Math.abs(mid.y-300)<100)mid.y+=mid.y<300?-100:100;
+    mid.y=clamp(mid.y,60,540);
   }
-  const scale=pw/W;
-  ctx.setTransform(scale,0,0,scale,0,0);
+}
+function fit(){
+  const r=$("stage").getBoundingClientRect();
+  scale=Math.min((r.width-16)/W,r.height/H);
+  if(!(scale>0))return;
+  const d=window.devicePixelRatio||1;
+  cv.style.width=W*scale+"px";
+  cv.style.height=H*scale+"px";
+  cv.width=Math.round(W*scale*d);
+  cv.height=Math.round(H*scale*d);
+  ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
   draw();
 }
-
 function screenPoint(e){
-  const r=canvas.getBoundingClientRect();
-  return {
-    x:clamp((e.clientX-r.left)*W/r.width,0,W),
-    y:clamp((e.clientY-r.top)*H/r.height,0,H)
-  };
+  const r=cv.getBoundingClientRect();
+  return {x:clamp((e.clientX-r.left)*W/r.width,0,W),y:clamp((e.clientY-r.top)*H/r.height,0,H)};
 }
 function pointSegment(p,a,b){
   const dx=b.x-a.x,dy=b.y-a.y;
@@ -122,7 +103,11 @@ function intersection(a,b,c,d){
   return {x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y),t,u};
 }
 function snapPoint(p){
-  let best=p,bestD=18;
+  let best=p,bestD=22;
+  for(const m of [START,GOAL,mid]){
+    const d=dist(p,m);
+    if(d<bestD){bestD=d;best=m}
+  }
   for(const n of nodes){
     const d=dist(p,n);
     if(d<bestD){bestD=d;best=n}
@@ -135,6 +120,11 @@ function snapPoint(p){
   }
   return {x:best.x,y:best.y};
 }
+function roadLength(pts){
+  let s=0;
+  for(let i=1;i<pts.length;i++)s+=dist(pts[i-1],pts[i]);
+  return s;
+}
 function addRoad(points){
   if(points.length<2)return;
   const cleaned=[points[0]];
@@ -144,58 +134,98 @@ function addRoad(points){
   if(cleaned.length<2)return;
   cleaned[0]=snapPoint(cleaned[0]);
   cleaned[cleaned.length-1]=snapPoint(cleaned[cleaned.length-1]);
+  const cost=roadLength(cleaned);
+  if(cost>money){say("予算が足りません");return}
+  money-=cost;
+  cleaned.cost=cost;
   roads.push(cleaned);
   cars=[];
   rebuildGraph();
-  draw();
 }
 function smoothStroke(points){
   if(points.length<3)return points;
   const spaced=[points[0]];
   for(let i=1;i<points.length;i++){
     const a=spaced[spaced.length-1],b=points[i];
-    const d=dist(a,b);
-    const count=Math.ceil(d/5);
+    const count=Math.ceil(dist(a,b)/5);
     for(let j=1;j<=count;j++){
       const t=j/count;
       spaced.push({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)});
     }
   }
-  let smoothed=spaced;
+  let sm=spaced;
   for(let pass=0;pass<2;pass++){
-    const out=[smoothed[0]];
-    for(let i=1;i<smoothed.length-1;i++){
-      out.push({
-        x:smoothed[i-1].x*.25+smoothed[i].x*.5+smoothed[i+1].x*.25,
-        y:smoothed[i-1].y*.25+smoothed[i].y*.5+smoothed[i+1].y*.25
-      });
+    const out=[sm[0]];
+    for(let i=1;i<sm.length-1;i++){
+      out.push({x:sm[i-1].x*.25+sm[i].x*.5+sm[i+1].x*.25,y:sm[i-1].y*.25+sm[i].y*.5+sm[i+1].y*.25});
     }
-    out.push(smoothed[smoothed.length-1]);
-    smoothed=out;
+    out.push(sm[sm.length-1]);
+    sm=out;
   }
-  const simplified=[smoothed[0]];
-  let anchor=smoothed[0];
-  for(let i=1;i<smoothed.length-1;i++){
-    if(pointSegment(smoothed[i],anchor,smoothed[i+1]).d>1.8){
-      simplified.push(smoothed[i]);
-      anchor=smoothed[i];
-    }
+  const simp=[sm[0]];
+  let anchor=sm[0];
+  for(let i=1;i<sm.length-1;i++){
+    if(pointSegment(sm[i],anchor,sm[i+1]).d>1.8){simp.push(sm[i]);anchor=sm[i]}
   }
-  simplified.push(smoothed[smoothed.length-1]);
-  return simplified;
+  simp.push(sm[sm.length-1]);
+  return simp;
 }
 
-function signalGroup(node,from){
-  const ang=Math.atan2(from.y-node.y,from.x-node.x);
-  let d=Math.abs(ang-node.ref)%Math.PI;
-  if(d>Math.PI/2)d=Math.PI-d;
-  return d<Math.PI/4?0:1;
+function goalPath(from){
+  const g=closestNode(GOAL,40);
+  return g?shortestPath(from,g):null;
 }
-function isGreen(node,group){
-  if(!node.hasG[0]||!node.hasG[1])return true;
-  const p=(clock+node.offset)%8;
-  if(group===0)return p<3.5;
-  return p>=4&&p<7.5;
+function rerouteAll(){
+  for(const c of cars){
+    let hit=false;
+    for(let i=c.index+1;i<c.path.length;i++)if(c.path[i].edge.block)hit=true;
+    if(!hit)continue;
+    const alt=goalPath(c.path[c.index].to);
+    if(alt&&!alt.some(s=>s.edge.block))c.path=c.path.slice(0,c.index+1).concat(alt);
+  }
+}
+function startEvent(){
+  const r=Math.random();
+  if(r<.2){rush=8;say("ラッシュアワー！車が一気に押し寄せる");return}
+  if(r<.3){money+=400;say("補助金が出た ¥+400");return}
+  const pool=edges.filter(e=>e.length>50&&!e.block);
+  if(!pool.length)return;
+  const busy=pool.filter(e=>e.cars>0);
+  const list=busy.length?busy:pool;
+  const e=list[Math.floor(Math.random()*list.length)];
+  const x=(e.a.x+e.b.x)/2,y=(e.a.y+e.b.y)/2;
+  if(r<.65){
+    e.block={kind:"a",left:12,x,y};
+    cars=cars.filter(c=>{const s=c.path[c.index];return !(s&&s.edge===e&&Math.abs(c.t-.5)<.25)});
+    say("事故発生！タップで撤去(¥60)。放置でも12秒で片付きます");
+  }else{
+    e.block={kind:"r",left:Infinity,x,y};
+    say("落石で通行止め！タップで撤去(¥120)");
+  }
+  rerouteAll();
+}
+function tickEvents(dt){
+  if(rush>0)rush-=dt;
+  for(const e of edges){
+    if(!e.block)continue;
+    e.block.left-=dt;
+    if(e.block.left<=0){e.block=null;say("通行再開")}
+  }
+  evT-=dt;
+  if(evT<=0){
+    evT=Math.max(7,16-Math.floor(arrived/6)*1.5)+Math.random()*8;
+    startEvent();
+  }
+}
+function clearBlock(p){
+  for(const e of edges){
+    const b=e.block;
+    if(!b||dist(p,b)>34)continue;
+    const cost=b.kind==="a"?60:120;
+    if(money<cost){say("撤去する予算が足りません");return true}
+    money-=cost;e.block=null;say("撤去完了");return true;
+  }
+  return false;
 }
 
 function rebuildGraph(){
@@ -212,10 +242,7 @@ function rebuildGraph(){
       const a=segments[i],b=segments[j];
       if(a.ri===b.ri&&Math.abs(a.i-b.i)<=1)continue;
       const hit=intersection(a.a,a.b,b.a,b.b);
-      if(hit){
-        a.cuts.push({t:hit.t,p:hit});
-        b.cuts.push({t:hit.u,p:hit});
-      }
+      if(hit){a.cuts.push({t:hit.t,p:hit});b.cuts.push({t:hit.u,p:hit})}
     }
   }
   for(let i=0;i<segments.length;i++){
@@ -240,43 +267,25 @@ function rebuildGraph(){
   }
   for(const s of segments){
     s.cuts.sort((a,b)=>a.t-b.t);
-    const unique=[];
+    const uniq=[];
     for(const c of s.cuts){
-      if(!unique.length||Math.abs(c.t-unique[unique.length-1].t)>.002)unique.push(c);
+      if(!uniq.length||Math.abs(c.t-uniq[uniq.length-1].t)>.002)uniq.push(c);
     }
-    for(let i=0;i<unique.length-1;i++){
-      const a=getNode(unique[i].p),b=getNode(unique[i+1].p);
+    for(let i=0;i<uniq.length-1;i++){
+      const a=getNode(uniq[i].p),b=getNode(uniq[i+1].p);
       if(a===b)continue;
       const length=dist(a,b);
       if(length<3)continue;
-      const edge={a,b,length,cars:0};
+      const edge={a,b,length,cars:0,slow:0};
       edges.push(edge);
       a.links.push({node:b,edge});
       b.links.push({node:a,edge});
     }
   }
-  for(const n of nodes){
-    n.signal=n.links.length>=3;
-    if(n.signal){
-      n.ref=Math.atan2(n.links[0].node.y-n.y,n.links[0].node.x-n.x);
-      n.offset=(n.x*.37+n.y*.61)%8;
-      n.hasG=[false,false];
-      for(const l of n.links)n.hasG[signalGroup(n,l.node)]=true;
-    }
-  }
   connected=!!routeForCar();
-  spawnTimer=2.7;
-  updateStatus();
-}
-function updateStatus(){
-  const s=$("status");
-  if(connected){
-    s.textContent="運行中：スタートとゴールがつながっています";
-    s.className="status ok";
-  }else{
-    s.textContent="スタートからゴールまで道路をつなぐと、自動で車が走り出します";
-    s.className="status";
-  }
+  spawnTimer=1.5;
+  evT=14;
+  say(connected?"運行開始。事故や落石が起きたらタップで撤去できます":"出発から寄り道を通ってゴールまでつなごう");
 }
 function closestNode(p,max=35){
   let best=null,d0=max;
@@ -297,8 +306,7 @@ function shortestPath(from,to){
     if(n===to)break;
     for(const link of n.links){
       const e=link.edge;
-      const traffic=e.cars||0;
-      const next=costs.get(n)+e.length*(1+traffic*.45);
+      const next=costs.get(n)+e.length*(1+(e.cars||0)*.45)+(e.block?3000:0);
       if(next<(costs.get(link.node)??Infinity)){
         costs.set(link.node,next);
         prev.set(link.node,{node:n,edge:e});
@@ -318,236 +326,270 @@ function shortestPath(from,to){
   return path;
 }
 function routeForCar(){
-  const s=closestNode(START,45),g=closestNode(GOAL,45);
+  const s=closestNode(START,40),g=closestNode(GOAL,40);
   if(!s||!g)return null;
   const full=shortestPath(s,g);
   if(!full)return null;
-  const m=closestNode(mid,50);
-  if(!m)return full;
+  const m=closestNode(mid,40);
+  if(!m)return null;
   const a=shortestPath(s,m),b=shortestPath(m,g);
-  return a&&b?[...a,...b]:full;
+  return a&&b?[...a,...b]:null;
+}
+
+function edgeAng(s){return Math.atan2(s.to.y-s.from.y,s.to.x-s.from.x)}
+function angDiff(a,b){
+  let d=b-a;
+  while(d>Math.PI)d-=Math.PI*2;
+  while(d<-Math.PI)d+=Math.PI*2;
+  return d;
 }
 function spawnCar(){
   const route=routeForCar();
   if(!route||!route.length)return;
-  cars.push({
-    path:route,index:0,t:0,speed:48+Math.random()*14,
-    lane:Math.random()<.5?-1:1,color:["#e7f0f7","#e8b45d","#79b8ee","#e67c78","#b7a1ed"][Math.floor(Math.random()*5)]
-  });
-}
-function edgeTraffic(){
-  for(const e of edges)e.cars=0;
-  for(const c of cars){
-    const step=c.path[c.index];
-    if(step)step.edge.cars++;
+  if(route.some(s=>s.edge.block))return;
+  const first=route[0];
+  for(const o of cars){
+    const s=o.path[o.index];
+    if(s&&s.edge===first.edge&&s.from===first.from&&o.t*s.edge.length<36)return;
   }
+  spawnTimer=0;
+  const r=Math.random();
+  const ty=r<.2?TYPES[1]:r<.36?TYPES[2]:TYPES[0];
+  cars.push({path:route,index:0,t:0,v:0,ang:edgeAng(route[0]),len:ty.len,w:ty.w,type:ty.k,br:false,
+    vmax:ty.v[0]+Math.random()*(ty.v[1]-ty.v[0]),
+    col:ty.cols[Math.floor(Math.random()*ty.cols.length)]});
+}
+function gapAhead(c){
+  const s=c.path[c.index],L=s.edge.length;
+  const nx=c.path[c.index+1];
+  let g=Infinity;
+  for(const o of cars){
+    if(o===c)continue;
+    const os=o.path[o.index];
+    if(!os)continue;
+    const half=(o.len+c.len)/2+3;
+    if(os.edge===s.edge&&os.from===s.from){
+      if(o.t>c.t)g=Math.min(g,(o.t-c.t)*L-half);
+    }else if(nx&&os.edge===nx.edge&&os.from===nx.from){
+      g=Math.min(g,(1-c.t)*L+o.t*os.edge.length-half);
+    }
+  }
+  return g;
 }
 function update(dt){
   clock+=dt;
   if(!connected)return;
+  tickEvents(dt);
   spawnTimer+=dt;
-  if(spawnTimer>=2.7&&cars.length<14){
-    spawnTimer=0;
-    spawnCar();
-  }
-  edgeTraffic();
+  const lvl=Math.floor(arrived/6);
+  if(spawnTimer>=(rush>0?.35:Math.max(.8,2.4-lvl*.25))&&cars.length<(rush>0?40:30))spawnCar();
+  for(const e of edges){e.cars=0;e.slow=0}
   for(const c of cars){
-    const step=c.path[c.index];
-    if(!step)continue;
-    const edge=step.edge;
-    let speed=c.speed;
-    const traffic=edge.cars;
-    if(traffic>=2)speed*=.72;
-    if(traffic>=4)speed*=.45;
-    const gap=Math.min(18/edge.length,.4);
-    let limit=Infinity;
-    for(const other of cars){
-      if(other===c)continue;
-      const os=other.path[other.index];
-      if(!os||os.edge!==edge||os.from!==step.from)continue;
-      const delta=other.t-c.t;
-      if(delta>0&&delta<.2){
-        speed*=Math.max(.15,delta/.2);
-        limit=Math.min(limit,Math.max(c.t,other.t-gap));
-      }
+    const s=c.path[c.index];
+    if(s){s.edge.cars++;if(c.v<22)s.edge.slow++}
+  }
+  for(const c of cars){
+    const s=c.path[c.index],L=s.edge.length;
+    let vt=c.vmax*(1+lvl*.03);
+    const toEnd=(1-c.t)*L;
+    const nx=c.path[c.index+1];
+    if(nx&&toEnd<45){
+      const k=Math.min(1,Math.abs(angDiff(edgeAng(s),edgeAng(nx)))/1.3);
+      vt*=1-.6*k;
     }
-    let nextT=c.t+speed*dt/edge.length;
-    const node=step.to;
-    if(node.signal&&!isGreen(node,signalGroup(node,step.from))){
-      const stopT=1-Math.min(26,edge.length*.4)/edge.length;
-      if(c.t<=stopT)nextT=Math.min(nextT,stopT);
-    }
-    c.t=Math.min(nextT,limit);
+    let g=gapAhead(c);
+    if(s.edge.block&&c.t<.5)g=Math.min(g,(.5-c.t)*L-16);
+    vt=Math.min(vt,Math.sqrt(2*260*Math.max(0,g)));
+    c.br=c.v>vt+6;
+    if(c.v<vt)c.v=Math.min(vt,c.v+130*dt);
+    else c.v=Math.max(vt,c.v-280*dt);
+    c.t+=c.v*dt/L;
+    c.ang+=angDiff(c.ang,edgeAng(s))*Math.min(1,dt*10);
     if(c.t>=1){
-      c.index++;
       c.t=0;
-      if(c.index>=c.path.length){
-        c.done=true;
-        arrived++;
-      }
+      c.index++;
+      if(c.index>=c.path.length){c.done=true;arrived++;money+=45}
     }
   }
   cars=cars.filter(c=>!c.done);
-  edgeTraffic();
-  $("moving").textContent=cars.length;
+}
+function updateHud(){
   $("arrived").textContent=arrived;
-  $("speed").textContent=cars.length?Math.round(cars.reduce((s,c)=>s+c.speed,0)/cars.length):0;
-  $("traffic").textContent=edges.filter(e=>e.cars>=2).length;
+  $("jam").textContent=edges.filter(e=>e.slow>=2).length;
+  $("money").textContent=Math.round(money);
+  $("lvl").textContent=Math.floor(arrived/6)+1;
 }
-function carPosition(c){
-  const s=c.path[c.index];
-  if(!s)return null;
-  const a=s.from,b=s.to;
-  const x=lerp(a.x,b.x,c.t),y=lerp(a.y,b.y,c.t);
-  const angle=Math.atan2(b.y-a.y,b.x-a.x);
-  const offset=c.lane*4;
-  return {x:x-Math.sin(angle)*offset,y:y+Math.cos(angle)*offset,angle};
-}
-function drawGrid(){
-  ctx.fillStyle="#18231f";ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle="#26372e";ctx.lineWidth=1;
-  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
-  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+
+function drawGround(){
+  ctx.fillStyle=P.ground;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle=P.grid;ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let x=0;x<=W;x+=50){ctx.moveTo(x,0);ctx.lineTo(x,H)}
+  for(let y=0;y<=H;y+=50){ctx.moveTo(0,y);ctx.lineTo(W,y)}
+  ctx.stroke();
 }
 function drawRoads(){
-  ctx.lineCap="round";ctx.lineJoin="round";
-  ctx.strokeStyle="#101419";ctx.lineWidth=35;
+  ctx.lineCap="round";
+  ctx.strokeStyle=P.casing;ctx.lineWidth=26;
+  for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
+  ctx.lineWidth=22;
   for(const e of edges){
+    ctx.strokeStyle=e.slow>=3?P.j2:e.slow>=2?P.j1:P.road;
     ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
   }
-  ctx.fillStyle="#101419";
+  ctx.fillStyle=P.road;
   for(const n of nodes){
-    if(n.signal){ctx.beginPath();ctx.arc(n.x,n.y,18,0,Math.PI*2);ctx.fill()}
-  }
-  ctx.lineWidth=29;
-  for(const e of edges){
-    ctx.strokeStyle=e.cars>=4?"#e94c4c":e.cars>=2?"#f2a23a":"#626c76";
-    ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+    if(n.links.length>2){ctx.beginPath();ctx.arc(n.x,n.y,15,0,Math.PI*2);ctx.fill()}
   }
   ctx.lineCap="butt";
-  ctx.strokeStyle="#d4d8d8";ctx.lineWidth=1.4;ctx.setLineDash([10,10]);
+  ctx.strokeStyle=P.mark;ctx.globalAlpha=.5;ctx.lineWidth=1.3;ctx.setLineDash([9,9]);
+  for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
+  ctx.setLineDash([]);ctx.globalAlpha=1;
+}
+function drawBlocks(){
   for(const e of edges){
-    ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  ctx.fillStyle="#626c76";
-  for(const n of nodes){
-    if(n.signal){ctx.beginPath();ctx.arc(n.x,n.y,15.5,0,Math.PI*2);ctx.fill()}
-  }
-}
-function drawSignals(){
-  for(const n of nodes){
-    if(!n.signal)continue;
-    for(const l of n.links){
-      const d=dist(n,l.node);
-      if(!d)continue;
-      const ux=(l.node.x-n.x)/d,uy=(l.node.y-n.y)/d;
-      const px=n.x+ux*27-uy*11,py=n.y+uy*27+ux*11;
-      const green=isGreen(n,signalGroup(n,l.node));
-      ctx.fillStyle=green?"#3ddc84":"#ff4d4d";
-      ctx.strokeStyle="#101419";ctx.lineWidth=2;
-      ctx.beginPath();ctx.arc(px,py,4.5,0,Math.PI*2);ctx.fill();ctx.stroke();
+    const b=e.block;
+    if(!b)continue;
+    ctx.save();ctx.translate(b.x,b.y);
+    if(b.kind==="a"){
+      ctx.fillStyle="#9aa0a6";ctx.save();ctx.rotate(.5);ctx.fillRect(-12,-5,16,9);ctx.restore();
+      ctx.fillStyle="#d9552b";ctx.save();ctx.rotate(-.7);ctx.fillRect(-4,-4,16,9);ctx.restore();
+      if(Math.sin(clock*9)>0){ctx.fillStyle="#ff3b30";ctx.beginPath();ctx.arc(0,-1,4,0,Math.PI*2);ctx.fill()}
+    }else{
+      ctx.fillStyle="#7d7a72";
+      for(const r of [[-7,2,8],[2,-3,9],[6,6,6],[-3,-7,6]]){ctx.beginPath();ctx.arc(r[0],r[1],r[2],0,Math.PI*2);ctx.fill()}
     }
+    ctx.fillStyle=P.ground;ctx.fillRect(-34,-36,68,16);
+    ctx.fillStyle=P.ink;ctx.font='bold 11px -apple-system,"Hiragino Sans",sans-serif';ctx.textAlign="center";
+    ctx.fillText(b.kind==="a"?"事故 ¥60":"落石 ¥120",0,-24);
+    ctx.restore();
   }
 }
-function drawMarker(p,label,color,shape="circle"){
+function drawMarker(p,label,color,diamond){
   ctx.save();ctx.translate(p.x,p.y);
-  ctx.fillStyle=color;ctx.strokeStyle="#ffffff";ctx.lineWidth=2;
+  ctx.fillStyle=color;ctx.strokeStyle=P.ground;ctx.lineWidth=3;
   ctx.beginPath();
-  if(shape==="diamond"){ctx.moveTo(0,-13);ctx.lineTo(13,0);ctx.lineTo(0,13);ctx.lineTo(-13,0);ctx.closePath()}
-  else ctx.arc(0,0,12,0,Math.PI*2);
-  ctx.fill();ctx.stroke();
-  ctx.fillStyle="#fff";ctx.font='bold 13px "Noto Sans JP",Arial,sans-serif';ctx.textAlign="center";
-  ctx.fillText(label,0,-21);
+  if(diamond){ctx.moveTo(0,-12);ctx.lineTo(12,0);ctx.lineTo(0,12);ctx.lineTo(-12,0);ctx.closePath()}
+  else ctx.arc(0,0,11,0,Math.PI*2);
+  ctx.stroke();ctx.fill();
+  ctx.fillStyle=P.ink;ctx.font='bold 13px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';ctx.textAlign="center";
+  ctx.fillText(label,0,-19);
   ctx.restore();
 }
 function drawCar(c){
-  const p=carPosition(c);
-  if(!p)return;
-  ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);
-  ctx.fillStyle="#0b0f13";ctx.fillRect(-10,-7,22,16);
-  ctx.fillStyle=c.color;ctx.fillRect(-11,-6,22,12);
-  ctx.fillStyle="#263d4d";ctx.fillRect(1,-4,6,8);
-  ctx.fillStyle="#f8e6a0";ctx.fillRect(8,-4,2,3);ctx.fillRect(8,1,2,3);
+  const s=c.path[c.index];
+  if(!s)return;
+  const x=lerp(s.from.x,s.to.x,c.t),y=lerp(s.from.y,s.to.y,c.t);
+  ctx.save();
+  ctx.translate(x+Math.sin(c.ang)*5,y-Math.cos(c.ang)*5);
+  ctx.rotate(c.ang);
+  const l=c.len,w=c.w;
+  ctx.fillStyle="rgba(0,0,0,.28)";ctx.fillRect(-l/2+1,-w/2+2,l,w);
+  ctx.fillStyle=c.col;ctx.fillRect(-l/2,-w/2,l,w);
+  ctx.fillStyle="rgba(0,0,0,.35)";
+  if(c.type==="t")ctx.fillRect(l/2-8,-w/2+1,7,w-2);
+  else ctx.fillRect(-l*.1,-w/2+1.5,l*.35,w-3);
+  ctx.fillStyle=c.br?"#ff3b30":"#7a1f1a";
+  ctx.fillRect(-l/2,-w/2+1,1.8,2);ctx.fillRect(-l/2,w/2-3,1.8,2);
+  ctx.fillStyle="#fff6c8";
+  ctx.fillRect(l/2-1.5,-w/2+1,1.5,2);ctx.fillRect(l/2-1.5,w/2-3,1.5,2);
   ctx.restore();
 }
 function draw(){
-  drawGrid();
+  drawGround();
   drawRoads();
-  drawSignals();
+  drawBlocks();
   for(const c of cars)drawCar(c);
-  drawMarker(START,"スタート","#299e72");
-  drawMarker(mid,"中間","#d59b30","diamond");
-  drawMarker(GOAL,"ゴール","#347fdb");
-  if(firstPoint){
-    ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,7,0,Math.PI*2);ctx.stroke();
+  drawMarker(START,"出発","#3f8f5f");
+  drawMarker(mid,"寄り道","#d08d37",true);
+  drawMarker(GOAL,"ゴール","#2f6fa3");
+  if(mode==="straight"&&firstPoint){
+    ctx.fillStyle=P.ink;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,5,0,Math.PI*2);ctx.fill();
+    if(hover){
+      const end=snapPoint(hover),cost=dist(firstPoint,end);
+      ctx.strokeStyle=cost>money?"#d6453d":P.ink;ctx.lineWidth=3;ctx.setLineDash([6,6]);
+      ctx.beginPath();ctx.moveTo(firstPoint.x,firstPoint.y);ctx.lineTo(end.x,end.y);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle=cost>money?"#d6453d":P.ink;
+      ctx.font='bold 13px -apple-system,Arial,sans-serif';ctx.textAlign="center";
+      ctx.fillText("¥"+Math.round(cost),(firstPoint.x+end.x)/2,(firstPoint.y+end.y)/2-12);
+    }
   }
   if(drawing&&stroke.length>1){
-    ctx.strokeStyle="#d9f0ff";ctx.lineWidth=3;ctx.setLineDash([5,5]);
+    ctx.strokeStyle=P.ink;ctx.lineWidth=3;ctx.setLineDash([5,5]);
     ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);
     for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);
     ctx.stroke();ctx.setLineDash([]);
   }
 }
-canvas.addEventListener("pointerdown",e=>{
-  const p=screenPoint(e);
-  if(mode==="freehand"){
-    drawing=true;stroke=[p];canvas.setPointerCapture(e.pointerId);draw();return;
-  }
-  if(!firstPoint){firstPoint=snapPoint(p);draw();return}
+
+function commit(p){
   const end=snapPoint(p);
   if(dist(firstPoint,end)>12)addRoad([firstPoint,end]);
-  firstPoint=null;draw();
-});
-canvas.addEventListener("pointermove",e=>{
-  if(!drawing)return;
-  const p=screenPoint(e);
-  if(dist(stroke[stroke.length-1],p)>3)stroke.push(p);
-  draw();
-});
-function finishStroke(){
-  if(!drawing)return;
-  drawing=false;
-  const result=smoothStroke(stroke);
-  stroke=[];
-  if(result.length>1)addRoad(result);
-  draw();
+  firstPoint=null;
 }
-canvas.addEventListener("pointerup",finishStroke);
-canvas.addEventListener("pointercancel",finishStroke);
+cv.addEventListener("pointerdown",e=>{
+  const p=screenPoint(e);
+  hover=p;
+  if(clearBlock(p))return;
+  cv.setPointerCapture(e.pointerId);
+  if(mode==="free"){drawing=true;stroke=[p];return}
+  if(firstPoint){commit(p);return}
+  firstPoint=snapPoint(p);
+  dragging=true;
+});
+cv.addEventListener("pointermove",e=>{
+  const p=screenPoint(e);
+  hover=p;
+  if(drawing&&dist(stroke[stroke.length-1],p)>3)stroke.push(p);
+});
+function finish(e){
+  if(drawing){
+    drawing=false;
+    const result=smoothStroke(stroke);
+    stroke=[];
+    if(result.length>1)addRoad(result);
+  }
+  if(dragging&&firstPoint&&e&&e.type==="pointerup"){
+    const p=screenPoint(e);
+    if(dist(firstPoint,p)>25)commit(p);
+  }
+  dragging=false;
+}
+cv.addEventListener("pointerup",finish);
+cv.addEventListener("pointercancel",finish);
 
-$("straight").onclick=()=>{
-  mode="straight";firstPoint=null;
-  $("straight").classList.add("active");$("freehand").classList.remove("active");
-  draw();
-};
-$("freehand").onclick=()=>{
-  mode="freehand";firstPoint=null;
-  $("freehand").classList.add("active");$("straight").classList.remove("active");
-  draw();
-};
+function setMode(m){
+  mode=m;firstPoint=null;
+  for(const id of ["straight","free"])$(id).classList.toggle("on",id===m);
+}
+$("straight").onclick=()=>setMode("straight");
+$("free").onclick=()=>setMode("free");
 $("undo").onclick=()=>{
-  roads.pop();cars=[];rebuildGraph();draw();
+  const r=roads.pop();
+  if(r)money+=r.cost;
+  cars=[];
+  rebuildGraph();
 };
 $("reset").onclick=()=>{
-  roads=[];cars=[];nodes=[];edges=[];arrived=0;spawnTimer=0;
-  firstPoint=null;stroke=[];drawing=false;randomMid();
-  $("moving").textContent="0";$("arrived").textContent="0";
-  $("speed").textContent="0";$("traffic").textContent="0";
-  rebuildGraph();draw();
+  roads=[];cars=[];nodes=[];edges=[];
+  arrived=0;money=3000;spawnTimer=0;rush=0;
+  firstPoint=null;stroke=[];drawing=false;
+  randomMid();
+  rebuildGraph();
 };
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000||0,.05);
   lastTime=t;
-  update(dt);draw();
+  update(dt);
+  draw();
+  updateHud();
   requestAnimationFrame(loop);
 }
 randomMid();
 rebuildGraph();
-resizeCanvas();
-new ResizeObserver(resizeCanvas).observe(canvas);
-window.addEventListener("resize",resizeCanvas);
+fit();
+new ResizeObserver(fit).observe($("stage"));
 requestAnimationFrame(loop);
 </script>
 </body>
