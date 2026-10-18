@@ -25,13 +25,14 @@ button:active{opacity:.7}
 <span>到着<b id="arrived">0</b></span>
 <span>渋滞<b id="jam">0</b></span>
 <span>予算 ¥<b id="money">0</b></span>
-<span>Lv<b id="lvl">1</b></span>
+<span>交通量<b id="lvl">×1.0</b></span>
 </div>
 <div id="msg"></div>
 <div id="stage"><canvas id="c"></canvas></div>
 <div id="bar">
 <button id="straight" class="on">直線</button>
 <button id="free">自由</button>
+<button id="repair">補修</button>
 <button id="undo">戻す</button>
 <button id="reset">リセット</button>
 </div>
@@ -44,8 +45,8 @@ const START=portrait?{x:300,y:90}:{x:70,y:300};
 const GOAL=portrait?{x:300,y:810}:{x:930,y:300};
 const dark=matchMedia("(prefers-color-scheme:dark)").matches;
 const P=dark
-?{ground:"#1b1f1e",grid:"#232827",road:"#4d5356",casing:"#0c0e0e",mark:"#d8d2bf",j1:"#b57e32",j2:"#b5453a",ink:"#e9e6dc"}
-:{ground:"#eeeadf",grid:"#e0dbcc",road:"#4b5054",casing:"#25282b",mark:"#f1ecdd",j1:"#d08d37",j2:"#cc4a3d",ink:"#23272b"};
+?{ground:"#2a3a27",g1:"#2c3d29",g2:"#233221",sp:["#1f2d1d","#35482f"],tree1:"#1b2e1b",tree2:"#2d4a2b",sand:"#5b5742",w1:"#2f5f75",w2:"#14323f",mt1:"#59574f",mt2:"#35342f",snow:"#b9c4c8",rock1:"#5c5a54",rock2:"#33322e",road:"#4d5356",casing:"#6a665a",mark:"#cfc9b4",j1:"#b57e32",j2:"#b5453a",ink:"#e9e6dc"}
+:{ground:"#93ad68",g1:"#9bb56f",g2:"#86a05d",sp:["#7f9a55","#aac07a"],tree1:"#3f6b3a",tree2:"#5d8c48",sand:"#cdbf94",w1:"#6fb0c9",w2:"#2f7391",mt1:"#a19c8f",mt2:"#6f6b61",snow:"#f2f5f7",rock1:"#aaa498",rock2:"#6b675e",road:"#4b5054",casing:"#a79f86",mark:"#e8e4d2",j1:"#d08d37",j2:"#cc4a3d",ink:"#23272b"};
 const TYPES=[
 {k:"c",len:16,w:9,v:[85,115],cols:["#d9552b","#2f6fa3","#e0b43c","#f2efe6","#3f8f5f","#8a5ba8"]},
 {k:"t",len:27,w:10,v:[50,65],cols:["#e9e4d4","#8794a3"]},
@@ -56,8 +57,9 @@ const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const lerp=(a,b,t)=>a+(b-a)*t;
 let roads=[],cars=[],nodes=[],edges=[],mode="straight";
 let firstPoint=null,stroke=[],drawing=false,dragging=false,hover=null;
-let lastTime=0,spawnTimer=0,arrived=0,connected=false,clock=0,money=3000,scale=1,evT=14,rush=0;
-let mid={x:500,y:180};
+let lastTime=0,spawnTimer=0,arrived=0,connected=false,clock=0,money=3000,scale=1,evT=14,rush=0,demand=0,rainT=0,rainI=0,seed=1;
+let mid={x:500,y:180},obstacles=[],bg=null;
+const drops=Array.from({length:170},()=>({x:Math.random()*W,y:Math.random()*H,s:520+Math.random()*320}));
 
 function say(t){$("msg").textContent=t}
 function randomMid(){
@@ -71,6 +73,122 @@ function randomMid(){
     mid.y=clamp(mid.y,60,540);
   }
 }
+function shut(e){return !!(e.block||e.closed)}
+function makeObstacles(){
+  obstacles=[];
+  seed=Math.floor(Math.random()*1e9);
+  const k=portrait?.75:1;
+  const n=portrait?5:6;
+  let tries=0;
+  while(obstacles.length<n&&tries<300){
+    tries++;
+    const q=Math.random();
+    const kind=obstacles.length===0?"lake":q<.4?"lake":q<.75?"mtn":"rock";
+    const r=(kind==="lake"?34+Math.random()*34:kind==="mtn"?40+Math.random()*30:16+Math.random()*12)*k;
+    const o={type:kind,x:90+Math.random()*(W-180),y:90+Math.random()*(H-180),r,fl:0};
+    let ok=true;
+    for(const m of [START,GOAL,mid])if(dist(o,m)<r+70)ok=false;
+    for(const b of obstacles)if(dist(o,b)<r+b.r+26)ok=false;
+    if(ok)obstacles.push(o);
+  }
+}
+function inObstacle(p){
+  for(const o of obstacles)if(dist(p,o)<o.r+12)return true;
+  return false;
+}
+function pathBlocked(pts){
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1];
+    const n=Math.max(1,Math.ceil(dist(a,b)/6));
+    for(let j=0;j<=n;j++)if(inObstacle({x:lerp(a.x,b.x,j/n),y:lerp(a.y,b.y,j/n)}))return true;
+  }
+  return false;
+}
+function rng(s){
+  return()=>{
+    s|=0;s=s+0x6D2B79F5|0;
+    let t=Math.imul(s^s>>>15,1|s);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function farFromAll(x,y,pad){
+  for(const m of [START,GOAL,mid])if(Math.hypot(x-m.x,y-m.y)<pad)return false;
+  for(const o of obstacles)if(Math.hypot(x-o.x,y-o.y)<o.r+pad*.5)return false;
+  return true;
+}
+function drawMountain(g,o){
+  const r=o.r;
+  g.fillStyle="rgba(0,0,0,.2)";
+  g.beginPath();g.ellipse(o.x+r*.1,o.y+r*.62,r*1.05,r*.22,0,0,Math.PI*2);g.fill();
+  for(const p of [[-.45,-.45,.55],[.75,-.3,.45],[.2,-.95,.85]]){
+    const ax=o.x+p[0]*r,ay=o.y+p[1]*r,w=p[2]*r,by=o.y+r*.6;
+    g.fillStyle=P.mt1;
+    g.beginPath();g.moveTo(ax,ay);g.lineTo(ax-w,by);g.lineTo(ax+w*.1,by);g.closePath();g.fill();
+    g.fillStyle=P.mt2;
+    g.beginPath();g.moveTo(ax,ay);g.lineTo(ax+w*.1,by);g.lineTo(ax+w,by);g.closePath();g.fill();
+    const sh=(by-ay)*.28;
+    g.fillStyle=P.snow;
+    g.beginPath();g.moveTo(ax,ay);g.lineTo(ax-w*.28,ay+sh);g.lineTo(ax-w*.12,ay+sh*.7);g.lineTo(ax+w*.02,ay+sh*1.05);g.lineTo(ax+w*.16,ay+sh*.75);g.lineTo(ax+w*.28,ay+sh);g.closePath();g.fill();
+  }
+}
+function drawRock(g,o){
+  const r=o.r;
+  for(const b of [[0,0,.8],[.62,.3,.5],[-.5,.4,.45]]){
+    const x=o.x+b[0]*r,y=o.y+b[1]*r,s=b[2]*r;
+    g.fillStyle="rgba(0,0,0,.22)";
+    g.beginPath();g.ellipse(x+s*.2,y+s*.7,s*1.05,s*.38,0,0,Math.PI*2);g.fill();
+    const gr=g.createRadialGradient(x-s*.35,y-s*.4,s*.1,x,y,s*1.05);
+    gr.addColorStop(0,P.rock1);gr.addColorStop(1,P.rock2);
+    g.fillStyle=gr;
+    g.beginPath();g.ellipse(x,y,s,s*.82,0,0,Math.PI*2);g.fill();
+  }
+}
+function drawTree(g,x,y,s){
+  g.fillStyle="rgba(0,0,0,.2)";
+  g.beginPath();g.ellipse(x+s*.35,y+s*.55,s*.95,s*.4,0,0,Math.PI*2);g.fill();
+  for(const b of [[-.45,.25,.7],[.45,.2,.75],[0,0,1]]){
+    const gr=g.createRadialGradient(x+b[0]*s-s*.25,y+b[1]*s-s*.3,s*.1,x+b[0]*s,y+b[1]*s,s*b[2]);
+    gr.addColorStop(0,P.tree2);gr.addColorStop(1,P.tree1);
+    g.fillStyle=gr;
+    g.beginPath();g.arc(x+b[0]*s,y+b[1]*s,s*b[2],0,Math.PI*2);g.fill();
+  }
+}
+function buildBg(){
+  bg=document.createElement("canvas");
+  bg.width=cv.width;bg.height=cv.height;
+  const g=bg.getContext("2d");
+  g.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  const R=rng(seed);
+  const grad=g.createLinearGradient(0,0,W,H);
+  grad.addColorStop(0,P.g1);grad.addColorStop(1,P.g2);
+  g.fillStyle=grad;g.fillRect(0,0,W,H);
+  for(let i=0;i<30;i++){
+    const x=R()*W,y=R()*H,r=40+R()*90;
+    const pg=g.createRadialGradient(x,y,0,x,y,r);
+    pg.addColorStop(0,i%2?"rgba(255,255,200,.10)":"rgba(0,40,0,.12)");
+    pg.addColorStop(1,"rgba(0,0,0,0)");
+    g.fillStyle=pg;g.fillRect(x-r,y-r,r*2,r*2);
+  }
+  g.globalAlpha=.35;
+  for(let i=0;i<2200;i++){
+    g.fillStyle=P.sp[i%2];
+    g.fillRect(R()*W,R()*H,1.6,2.4);
+  }
+  g.globalAlpha=1;
+  for(const o of obstacles){
+    if(o.type==="mtn")drawMountain(g,o);
+    else if(o.type==="rock")drawRock(g,o);
+  }
+  let placed=0,tries=0;
+  while(placed<70&&tries<400){
+    tries++;
+    const x=R()*W,y=R()*H,s=6+R()*7;
+    if(!farFromAll(x,y,s+60))continue;
+    drawTree(g,x,y,s);
+    placed++;
+  }
+}
 function fit(){
   const r=$("stage").getBoundingClientRect();
   scale=Math.min((r.width-16)/W,r.height/H);
@@ -81,6 +199,7 @@ function fit(){
   cv.width=Math.round(W*scale*d);
   cv.height=Math.round(H*scale*d);
   ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  buildBg();
   draw();
 }
 function screenPoint(e){
@@ -134,10 +253,14 @@ function addRoad(points){
   if(cleaned.length<2)return;
   cleaned[0]=snapPoint(cleaned[0]);
   cleaned[cleaned.length-1]=snapPoint(cleaned[cleaned.length-1]);
+  if(pathBlocked(cleaned)){say("障害物があって通せません");return}
   const cost=roadLength(cleaned);
   if(cost>money){say("予算が足りません");return}
   money-=cost;
   cleaned.cost=cost;
+  cleaned.wear=0;
+  cleaned.repair=0;
+  cleaned.warned=false;
   roads.push(cleaned);
   cars=[];
   rebuildGraph();
@@ -178,23 +301,24 @@ function goalPath(from){
 function rerouteAll(){
   for(const c of cars){
     let hit=false;
-    for(let i=c.index+1;i<c.path.length;i++)if(c.path[i].edge.block)hit=true;
+    for(let i=c.index+1;i<c.path.length;i++)if(shut(c.path[i].edge))hit=true;
     if(!hit)continue;
     const alt=goalPath(c.path[c.index].to);
-    if(alt&&!alt.some(s=>s.edge.block))c.path=c.path.slice(0,c.index+1).concat(alt);
+    if(alt&&!alt.some(s=>shut(s.edge)))c.path=c.path.slice(0,c.index+1).concat(alt);
   }
 }
 function startEvent(){
   const r=Math.random();
-  if(r<.2){rush=8;say("ラッシュアワー！車が一気に押し寄せる");return}
-  if(r<.3){money+=400;say("補助金が出た ¥+400");return}
+  if(r<.15){rush=8;say("ラッシュアワー！車が一気に押し寄せる");return}
+  if(r<.23){money+=400;say("補助金が出た ¥+400");return}
+  if(r<.43){rainT=28+Math.random()*14;say("大雨！湖が増水して道路が冠水するかも");return}
   const pool=edges.filter(e=>e.length>50&&!e.block);
   if(!pool.length)return;
   const busy=pool.filter(e=>e.cars>0);
   const list=busy.length?busy:pool;
   const e=list[Math.floor(Math.random()*list.length)];
   const x=(e.a.x+e.b.x)/2,y=(e.a.y+e.b.y)/2;
-  if(r<.65){
+  if(r<.72){
     e.block={kind:"a",left:12,x,y};
     cars=cars.filter(c=>{const s=c.path[c.index];return !(s&&s.edge===e&&Math.abs(c.t-.5)<.25)});
     say("事故発生！タップで撤去(¥60)。放置でも12秒で片付きます");
@@ -205,6 +329,7 @@ function startEvent(){
   rerouteAll();
 }
 function tickEvents(dt){
+  tickWeather(dt);
   if(rush>0)rush-=dt;
   for(const e of edges){
     if(!e.block)continue;
@@ -216,6 +341,71 @@ function tickEvents(dt){
     evT=Math.max(7,16-Math.floor(arrived/6)*1.5)+Math.random()*8;
     startEvent();
   }
+}
+function floodAt(e){
+  for(const o of obstacles){
+    if(o.type!=="lake"||o.fl<8)continue;
+    if(pointSegment(o,e.a,e.b).d<o.r+o.fl)return true;
+  }
+  return false;
+}
+function tickWeather(dt){
+  if(rainT>0){
+    rainT-=dt;
+    rainI=Math.min(1,rainI+dt*.4);
+    if(rainT<=0)say("雨があがった。水が引くまで待とう");
+  }else rainI=Math.max(0,rainI-dt*.25);
+  for(const o of obstacles){
+    if(o.type!=="lake")continue;
+    if(rainI>.5)o.fl=Math.min(70,o.fl+dt*3.4*rainI);
+    else o.fl=Math.max(0,o.fl-dt*2.4);
+  }
+}
+function tickRoads(dt){
+  const jam=edges.filter(e=>e.slow>=2).length;
+  if(jam<2)demand+=dt*.014;
+  else demand=Math.max(0,demand-dt*.03);
+  for(const r of roads){
+    if(r.repair>0){
+      r.repair-=dt;
+      if(r.repair<=0){r.wear=0;r.warned=false;say("補修完了。通行再開")}
+    }else r.wear=Math.min(100,r.wear+.1*dt);
+  }
+  let closedNow=false;
+  for(const e of edges){
+    const r=e.road;
+    if(r.repair<=0)r.wear=Math.min(100,r.wear+e.cars*.12*dt);
+    const was=e.closed;
+    e.flood=floodAt(e);
+    e.closed=r.repair>0||r.wear>=100||e.flood;
+    if(e.closed&&!was){
+      closedNow=true;
+      if(e.flood)say("洪水！道路が冠水しました。水が引くまで迂回を");
+      else if(r.repair<=0)say("道路が崩壊！補修が必要です");
+    }
+  }
+  if(closedNow)rerouteAll();
+  for(const r of roads){
+    if(!r.warned&&r.wear>=70&&r.wear<100){r.warned=true;say("道が傷んできた。補修か迂回路を！")}
+  }
+}
+function repairAt(p){
+  let best=null,bd=26;
+  for(const r of roads){
+    for(let i=0;i<r.length-1;i++){
+      const q=pointSegment(p,r[i],r[i+1]);
+      if(q.d<bd){bd=q.d;best=r}
+    }
+  }
+  if(!best)return false;
+  if(best.repair>0){say("補修中です");return true}
+  if(best.wear<15){say("まだ傷んでいません");return true}
+  const cost=Math.round(Math.max(80,best.cost*.4));
+  if(money<cost){say("補修の予算が足りません");return true}
+  money-=cost;
+  best.repair=8;
+  say("補修工事中。8秒間は通行止めです");
+  return true;
 }
 function clearBlock(p){
   for(const e of edges){
@@ -276,7 +466,7 @@ function rebuildGraph(){
       if(a===b)continue;
       const length=dist(a,b);
       if(length<3)continue;
-      const edge={a,b,length,cars:0,slow:0};
+      const edge={a,b,length,cars:0,slow:0,road:roads[s.ri]};
       edges.push(edge);
       a.links.push({node:b,edge});
       b.links.push({node:a,edge});
@@ -306,7 +496,7 @@ function shortestPath(from,to){
     if(n===to)break;
     for(const link of n.links){
       const e=link.edge;
-      const next=costs.get(n)+e.length*(1+(e.cars||0)*.45)+(e.block?3000:0);
+      const next=costs.get(n)+e.length*(1+(e.cars||0)*.45)+(shut(e)?3000:0);
       if(next<(costs.get(link.node)??Infinity)){
         costs.set(link.node,next);
         prev.set(link.node,{node:n,edge:e});
@@ -346,7 +536,7 @@ function angDiff(a,b){
 function spawnCar(){
   const route=routeForCar();
   if(!route||!route.length)return;
-  if(route.some(s=>s.edge.block))return;
+  if(route.some(s=>shut(s.edge)))return;
   const first=route[0];
   for(const o of cars){
     const s=o.path[o.index];
@@ -381,16 +571,17 @@ function update(dt){
   if(!connected)return;
   tickEvents(dt);
   spawnTimer+=dt;
-  const lvl=Math.floor(arrived/6);
-  if(spawnTimer>=(rush>0?.35:Math.max(.8,2.4-lvl*.25))&&cars.length<(rush>0?40:30))spawnCar();
+  const lvl=demand;
+  if(spawnTimer>=(rush>0?.35:Math.max(.45,2.6/(1+demand)))&&cars.length<(rush>0?45:Math.min(45,26+demand*6)))spawnCar();
   for(const e of edges){e.cars=0;e.slow=0}
   for(const c of cars){
     const s=c.path[c.index];
     if(s){s.edge.cars++;if(c.v<22)s.edge.slow++}
   }
+  tickRoads(dt);
   for(const c of cars){
     const s=c.path[c.index],L=s.edge.length;
-    let vt=c.vmax*(1+lvl*.03);
+    let vt=c.vmax*(1+lvl*.03)*(1-Math.max(0,s.edge.road.wear-50)/110)*(1-.22*rainI);
     const toEnd=(1-c.t)*L;
     const nx=c.path[c.index+1];
     if(nx&&toEnd<45){
@@ -398,7 +589,7 @@ function update(dt){
       vt*=1-.6*k;
     }
     let g=gapAhead(c);
-    if(s.edge.block&&c.t<.5)g=Math.min(g,(.5-c.t)*L-16);
+    if(shut(s.edge)&&c.t<.5)g=Math.min(g,(.5-c.t)*L-16);
     vt=Math.min(vt,Math.sqrt(2*260*Math.max(0,g)));
     c.br=c.v>vt+6;
     if(c.v<vt)c.v=Math.min(vt,c.v+130*dt);
@@ -417,24 +608,35 @@ function updateHud(){
   $("arrived").textContent=arrived;
   $("jam").textContent=edges.filter(e=>e.slow>=2).length;
   $("money").textContent=Math.round(money);
-  $("lvl").textContent=Math.floor(arrived/6)+1;
+  $("lvl").textContent="×"+(1+demand).toFixed(1);
 }
 
 function drawGround(){
-  ctx.fillStyle=P.ground;ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=P.grid;ctx.lineWidth=1;
-  ctx.beginPath();
-  for(let x=0;x<=W;x+=50){ctx.moveTo(x,0);ctx.lineTo(x,H)}
-  for(let y=0;y<=H;y+=50){ctx.moveTo(0,y);ctx.lineTo(W,y)}
-  ctx.stroke();
+  if(bg)ctx.drawImage(bg,0,0,W,H);
+  else{ctx.fillStyle=P.ground;ctx.fillRect(0,0,W,H)}
+  for(const o of obstacles){
+    if(o.type!=="lake")continue;
+    const R=o.r+o.fl;
+    ctx.fillStyle=P.sand;ctx.beginPath();ctx.arc(o.x,o.y,R+4,0,Math.PI*2);ctx.fill();
+    const gr=ctx.createRadialGradient(o.x-R*.25,o.y-R*.25,R*.1,o.x,o.y,R);
+    gr.addColorStop(0,P.w1);gr.addColorStop(1,P.w2);
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(o.x,o.y,R,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,.35)";ctx.lineWidth=1.2;
+    for(let i=0;i<4;i++){
+      const a=clock*.6+i*1.7,rr=R*(.25+.15*i);
+      ctx.beginPath();ctx.arc(o.x,o.y,rr,a,a+.9);ctx.stroke();
+    }
+  }
 }
 function drawRoads(){
   ctx.lineCap="round";
-  ctx.strokeStyle=P.casing;ctx.lineWidth=26;
+  ctx.strokeStyle=P.casing;ctx.lineWidth=30;
+  for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
+  ctx.strokeStyle=P.mark;ctx.lineWidth=26;
   for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
   ctx.lineWidth=22;
   for(const e of edges){
-    ctx.strokeStyle=e.slow>=3?P.j2:e.slow>=2?P.j1:P.road;
+    ctx.strokeStyle=e.closed&&!e.flood?"#6b4b34":e.slow>=3?P.j2:e.slow>=2?P.j1:P.road;
     ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
   }
   ctx.fillStyle=P.road;
@@ -445,6 +647,40 @@ function drawRoads(){
   ctx.strokeStyle=P.mark;ctx.globalAlpha=.5;ctx.lineWidth=1.3;ctx.setLineDash([9,9]);
   for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
   ctx.setLineDash([]);ctx.globalAlpha=1;
+  for(const e of edges){
+    const w=e.road.wear;
+    if(e.closed){
+      ctx.strokeStyle="#e9b23a";ctx.lineWidth=20;ctx.globalAlpha=.7;ctx.setLineDash([7,9]);
+      ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+      ctx.setLineDash([]);ctx.globalAlpha=1;
+    }else if(w>=45){
+      ctx.strokeStyle="#8a6a3a";ctx.lineWidth=1.6;ctx.globalAlpha=Math.min(1,(w-40)/50);ctx.setLineDash([3,11]);
+      ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+      ctx.setLineDash([]);ctx.globalAlpha=1;
+    }
+  }
+}
+function drawFloods(){
+  for(const o of obstacles){
+    if(o.type!=="lake"||o.fl<1)continue;
+    ctx.fillStyle="rgba(70,140,175,"+Math.min(.45,o.fl/25)+")";
+    ctx.beginPath();ctx.arc(o.x,o.y,o.r+o.fl,0,Math.PI*2);ctx.fill();
+  }
+}
+function drawWeather(){
+  if(rainI<.02)return;
+  ctx.fillStyle="rgba(12,22,40,"+(.3*rainI)+")";
+  ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle="rgba(205,225,255,.5)";ctx.lineWidth=1.2;
+  ctx.beginPath();
+  const n=Math.floor(drops.length*rainI);
+  for(let i=0;i<n;i++){
+    const d=drops[i];
+    const y=(d.y+clock*d.s)%H;
+    const x=(d.x+y*.22)%W;
+    ctx.moveTo(x,y);ctx.lineTo(x-3,y+12);
+  }
+  ctx.stroke();
 }
 function drawBlocks(){
   for(const e of edges){
@@ -463,6 +699,19 @@ function drawBlocks(){
     ctx.fillStyle=P.ink;ctx.font='bold 11px -apple-system,"Hiragino Sans",sans-serif';ctx.textAlign="center";
     ctx.fillText(b.kind==="a"?"事故 ¥60":"落石 ¥120",0,-24);
     ctx.restore();
+  }
+}
+function drawWear(){
+  ctx.font='bold 11px -apple-system,"Hiragino Sans",sans-serif';ctx.textAlign="center";
+  for(const r of roads){
+    if(!(mode==="repair"||r.wear>=40||r.repair>0))continue;
+    const i=Math.floor((r.length-1)/2);
+    const x=(r[i].x+r[i+1].x)/2,y=(r[i].y+r[i+1].y)/2;
+    const txt=r.repair>0?"補修中 "+Math.ceil(r.repair)+"秒":"傷み "+Math.round(r.wear)+"%"+(mode==="repair"?" ¥"+Math.round(Math.max(80,r.cost*.4)):"");
+    const tw=ctx.measureText(txt).width+10;
+    ctx.fillStyle=P.ground;ctx.fillRect(x-tw/2,y-30,tw,16);
+    ctx.fillStyle=r.wear>=70?"#d6453d":P.ink;
+    ctx.fillText(txt,x,y-18);
   }
 }
 function drawMarker(p,label,color,diamond){
@@ -484,11 +733,23 @@ function drawCar(c){
   ctx.translate(x+Math.sin(c.ang)*5,y-Math.cos(c.ang)*5);
   ctx.rotate(c.ang);
   const l=c.len,w=c.w;
-  ctx.fillStyle="rgba(0,0,0,.28)";ctx.fillRect(-l/2+1,-w/2+2,l,w);
+  if(rainI>.2){
+    ctx.fillStyle="rgba(255,240,170,"+.14*rainI+")";
+    ctx.beginPath();ctx.moveTo(c.len/2,-c.w/2+1);ctx.lineTo(c.len/2+30,-c.w/2-7);ctx.lineTo(c.len/2+30,c.w/2+7);ctx.lineTo(c.len/2,c.w/2-1);ctx.closePath();ctx.fill();
+  }
+  ctx.fillStyle="rgba(0,0,0,.3)";ctx.fillRect(-l/2+1.5,-w/2+2.5,l,w);
   ctx.fillStyle=c.col;ctx.fillRect(-l/2,-w/2,l,w);
-  ctx.fillStyle="rgba(0,0,0,.35)";
-  if(c.type==="t")ctx.fillRect(l/2-8,-w/2+1,7,w-2);
-  else ctx.fillRect(-l*.1,-w/2+1.5,l*.35,w-3);
+  ctx.fillStyle="rgba(255,255,255,.22)";ctx.fillRect(-l/2,-w/2,l,2);
+  ctx.fillStyle="rgba(0,0,0,.25)";ctx.fillRect(-l/2,w/2-2,l,2);
+  ctx.fillStyle="#1c2a36";
+  if(c.type==="t"){
+    ctx.fillRect(l/2-8,-w/2+1.2,6,w-2.4);
+    ctx.fillStyle="rgba(0,0,0,.18)";ctx.fillRect(-l/2+1,-w/2+1,l-11,w-2);
+  }else{
+    ctx.fillRect(-l*.02,-w/2+1.4,l*.24,w-2.8);
+    ctx.fillRect(-l*.38,-w/2+1.6,l*.12,w-3.2);
+    ctx.fillStyle="rgba(255,255,255,.18)";ctx.fillRect(-l*.26,-w/2+1.6,l*.24,w-3.2);
+  }
   ctx.fillStyle=c.br?"#ff3b30":"#7a1f1a";
   ctx.fillRect(-l/2,-w/2+1,1.8,2);ctx.fillRect(-l/2,w/2-3,1.8,2);
   ctx.fillStyle="#fff6c8";
@@ -498,18 +759,21 @@ function drawCar(c){
 function draw(){
   drawGround();
   drawRoads();
+  drawFloods();
   drawBlocks();
   for(const c of cars)drawCar(c);
+  drawWear();
   drawMarker(START,"出発","#3f8f5f");
   drawMarker(mid,"寄り道","#d08d37",true);
   drawMarker(GOAL,"ゴール","#2f6fa3");
+  drawWeather();
   if(mode==="straight"&&firstPoint){
     ctx.fillStyle=P.ink;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,5,0,Math.PI*2);ctx.fill();
     if(hover){
-      const end=snapPoint(hover),cost=dist(firstPoint,end);
-      ctx.strokeStyle=cost>money?"#d6453d":P.ink;ctx.lineWidth=3;ctx.setLineDash([6,6]);
+      const end=snapPoint(hover),cost=dist(firstPoint,end),bad=cost>money||pathBlocked([firstPoint,end]);
+      ctx.strokeStyle=bad?"#d6453d":P.ink;ctx.lineWidth=3;ctx.setLineDash([6,6]);
       ctx.beginPath();ctx.moveTo(firstPoint.x,firstPoint.y);ctx.lineTo(end.x,end.y);ctx.stroke();ctx.setLineDash([]);
-      ctx.fillStyle=cost>money?"#d6453d":P.ink;
+      ctx.fillStyle=bad?"#d6453d":P.ink;
       ctx.font='bold 13px -apple-system,Arial,sans-serif';ctx.textAlign="center";
       ctx.fillText("¥"+Math.round(cost),(firstPoint.x+end.x)/2,(firstPoint.y+end.y)/2-12);
     }
@@ -531,6 +795,7 @@ cv.addEventListener("pointerdown",e=>{
   const p=screenPoint(e);
   hover=p;
   if(clearBlock(p))return;
+  if(mode==="repair"){repairAt(p);return}
   cv.setPointerCapture(e.pointerId);
   if(mode==="free"){drawing=true;stroke=[p];return}
   if(firstPoint){commit(p);return}
@@ -560,10 +825,11 @@ cv.addEventListener("pointercancel",finish);
 
 function setMode(m){
   mode=m;firstPoint=null;
-  for(const id of ["straight","free"])$(id).classList.toggle("on",id===m);
+  for(const id of ["straight","free","repair"])$(id).classList.toggle("on",id===m);
 }
 $("straight").onclick=()=>setMode("straight");
 $("free").onclick=()=>setMode("free");
+$("repair").onclick=()=>setMode("repair");
 $("undo").onclick=()=>{
   const r=roads.pop();
   if(r)money+=r.cost;
@@ -572,9 +838,11 @@ $("undo").onclick=()=>{
 };
 $("reset").onclick=()=>{
   roads=[];cars=[];nodes=[];edges=[];
-  arrived=0;money=3000;spawnTimer=0;rush=0;
+  arrived=0;money=3000;spawnTimer=0;rush=0;demand=0;rainT=0;rainI=0;
   firstPoint=null;stroke=[];drawing=false;
   randomMid();
+  makeObstacles();
+  buildBg();
   rebuildGraph();
 };
 
@@ -587,6 +855,7 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 randomMid();
+makeObstacles();
 rebuildGraph();
 fit();
 new ResizeObserver(fit).observe($("stage"));
