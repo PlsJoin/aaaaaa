@@ -14,8 +14,8 @@ body{background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,"Hiragino
 #msg{padding:2px 14px 0;height:18px;font-size:12px;color:var(--ac)}
 #stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 8px}
 canvas{display:block;border-radius:6px;touch-action:none}
-#bar{display:flex;gap:6px;padding:8px 8px 10px}
-button{flex:1;height:38px;padding:0;border:1px solid var(--ln);background:var(--pn);color:var(--ink);border-radius:6px;font:inherit;font-size:13px}
+#bar{display:flex;gap:5px;padding:8px 6px 10px;flex-wrap:wrap}
+button{flex:1;min-width:52px;height:38px;padding:0;border:1px solid var(--ln);background:var(--pn);color:var(--ink);border-radius:6px;font:inherit;font-size:12px}
 button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 button:active{opacity:.7}
 </style>
@@ -33,6 +33,7 @@ button:active{opacity:.7}
 <button id="straight" class="on">直線</button>
 <button id="free">自由</button>
 <button id="repair">補修</button>
+<button id="erase">削除</button>
 <button id="undo">戻す</button>
 <button id="reset">リセット</button>
 </div>
@@ -48,9 +49,9 @@ const P=dark
 ?{ground:"#2a3a27",g1:"#2c3d29",g2:"#233221",sp:["#1f2d1d","#35482f"],tree1:"#1b2e1b",tree2:"#2d4a2b",sand:"#5b5742",w1:"#2f5f75",w2:"#14323f",mt1:"#59574f",mt2:"#35342f",snow:"#b9c4c8",rock1:"#5c5a54",rock2:"#33322e",road:"#3a3f42",casing:"#5a564c",mark:"#cfc9b4",j1:"#b57e32",j2:"#b5453a",ink:"#e9e6dc"}
 :{ground:"#93ad68",g1:"#9bb56f",g2:"#86a05d",sp:["#7f9a55","#aac07a"],tree1:"#3f6b3a",tree2:"#5d8c48",sand:"#cdbf94",w1:"#6fb0c9",w2:"#2f7391",mt1:"#a19c8f",mt2:"#6f6b61",snow:"#f2f5f7",rock1:"#aaa498",rock2:"#6b675e",road:"#353a3e",casing:"#8a8370",mark:"#e8e4d2",j1:"#d08d37",j2:"#cc4a3d",ink:"#23272b"};
 const TYPES=[
-{k:"c",len:16,w:9,v:[85,115],cols:["#d9552b","#2f6fa3","#e0b43c","#f2efe6","#3f8f5f","#8a5ba8"]},
-{k:"t",len:27,w:10,v:[50,65],cols:["#e9e4d4","#8794a3"]},
-{k:"s",len:15,w:8,v:[125,155],cols:["#c0392b","#f0c419"]}
+{k:"c",len:22,w:12,v:[85,115],cols:["#d9552b","#2f6fa3","#e0b43c","#f2efe6","#3f8f5f","#8a5ba8"]},
+{k:"t",len:34,w:14,v:[50,65],cols:["#e9e4d4","#8794a3"]},
+{k:"s",len:20,w:11,v:[125,155],cols:["#c0392b","#f0c419"]}
 ];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -255,7 +256,7 @@ function addRoad(points){
   if(points.length<2)return;
   const cleaned=[points[0]];
   for(let i=1;i<points.length;i++){
-    if(dist(cleaned[cleaned.length-1],points[i])>5)cleaned.push(points[i]);
+    if(dist(cleaned[cleaned.length-1],points[i])>4)cleaned.push(points[i]);
   }
   if(cleaned.length<2)return;
   cleaned[0]=snapPoint(cleaned[0]);
@@ -277,17 +278,17 @@ function smoothStroke(points){
   const spaced=[points[0]];
   for(let i=1;i<points.length;i++){
     const a=spaced[spaced.length-1],b=points[i];
-    const count=Math.ceil(dist(a,b)/5);
+    const count=Math.ceil(dist(a,b)/3.5);
     for(let j=1;j<=count;j++){
       const t=j/count;
       spaced.push({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)});
     }
   }
   let sm=spaced;
-  for(let pass=0;pass<2;pass++){
+  for(let pass=0;pass<1;pass++){
     const out=[sm[0]];
     for(let i=1;i<sm.length-1;i++){
-      out.push({x:sm[i-1].x*.25+sm[i].x*.5+sm[i+1].x*.25,y:sm[i-1].y*.25+sm[i].y*.5+sm[i+1].y*.25});
+      out.push({x:sm[i-1].x*.2+sm[i].x*.6+sm[i+1].x*.2,y:sm[i-1].y*.2+sm[i].y*.6+sm[i+1].y*.2});
     }
     out.push(sm[sm.length-1]);
     sm=out;
@@ -295,7 +296,7 @@ function smoothStroke(points){
   const simp=[sm[0]];
   let anchor=sm[0];
   for(let i=1;i<sm.length-1;i++){
-    if(pointSegment(sm[i],anchor,sm[i+1]).d>1.8){simp.push(sm[i]);anchor=sm[i]}
+    if(pointSegment(sm[i],anchor,sm[i+1]).d>0.9){simp.push(sm[i]);anchor=sm[i]}
   }
   simp.push(sm[sm.length-1]);
   return simp;
@@ -431,6 +432,24 @@ function repairAt(p){
   say("補修工事中。8秒間は通行止めです");
   return true;
 }
+function eraseAt(p){
+  let best=null,bd=28;
+  for(const r of roads){
+    for(let i=0;i<r.length-1;i++){
+      const q=pointSegment(p,r[i],r[i+1]);
+      if(q.d<bd){bd=q.d;best=r}
+    }
+  }
+  if(!best)return false;
+  const refund=Math.round(best.cost*.6);
+  money+=refund;
+  const idx=roads.indexOf(best);
+  if(idx>=0)roads.splice(idx,1);
+  cars=[];
+  rebuildGraph();
+  say("道路を削除 ¥+"+refund);
+  return true;
+}
 function clearBlock(p){
   for(const e of edges){
     const b=e.block;
@@ -563,7 +582,7 @@ function spawnCar(){
   const first=route[0];
   for(const o of cars){
     const s=o.path[o.index];
-    if(s&&s.edge===first.edge&&s.from===first.from&&o.t*s.edge.length<36)return;
+    if(s&&s.edge===first.edge&&s.from===first.from&&o.t*s.edge.length<40)return;
   }
   spawnTimer=0;
   const r=Math.random();
@@ -580,7 +599,7 @@ function gapAhead(c){
     if(o===c)continue;
     const os=o.path[o.index];
     if(!os)continue;
-    const half=(o.len+c.len)/2+3;
+    const half=(o.len+c.len)/2+4;
     if(os.edge===s.edge&&os.from===s.from){
       if(o.t>c.t)g=Math.min(g,(o.t-c.t)*L-half);
     }else if(nx&&os.edge===nx.edge&&os.from===nx.from){
@@ -607,12 +626,12 @@ function update(dt){
     let vt=c.vmax*(1+lvl*.03)*(1-Math.max(0,s.edge.road.wear-50)/110)*(1-.22*rainI);
     const toEnd=(1-c.t)*L;
     const nx=c.path[c.index+1];
-    if(nx&&toEnd<45){
+    if(nx&&toEnd<50){
       const k=Math.min(1,Math.abs(angDiff(edgeAng(s),edgeAng(nx)))/1.3);
       vt*=1-.6*k;
     }
     let g=gapAhead(c);
-    if(shut(s.edge)&&c.t<.5)g=Math.min(g,(.5-c.t)*L-16);
+    if(shut(s.edge)&&c.t<.5)g=Math.min(g,(.5-c.t)*L-18);
     vt=Math.min(vt,Math.sqrt(2*260*Math.max(0,g)));
     c.br=c.v>vt+6;
     if(c.v<vt)c.v=Math.min(vt,c.v+130*dt);
@@ -683,39 +702,42 @@ function drawCracks(e,intensity){
 }
 function drawRoads(){
   ctx.lineCap="round";
-  ctx.strokeStyle=P.casing;ctx.lineWidth=30;
+  ctx.lineJoin="round";
+  ctx.strokeStyle=P.casing;ctx.lineWidth=32;
   for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
-  ctx.strokeStyle=P.mark;ctx.lineWidth=26;
+  ctx.strokeStyle=P.mark;ctx.lineWidth=28;
   for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
-  ctx.lineWidth=22;
+  ctx.lineWidth=24;
   for(const e of edges){
     const isRepair=e.road.repair>0;
     if(isRepair){
       const pulse=.55+.45*Math.sin(clock*6);
       ctx.strokeStyle=`rgba(255,140,40,${pulse})`;
-      ctx.lineWidth=26;
+      ctx.lineWidth=28;
     }else{
       ctx.strokeStyle=e.closed&&!e.flood?"#6b4b34":e.slow>=3?P.j2:e.slow>=2?P.j1:P.road;
-      ctx.lineWidth=22;
+      ctx.lineWidth=24;
     }
     ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
   }
   ctx.fillStyle=P.road;
   for(const n of nodes){
-    if(n.links.length>2){ctx.beginPath();ctx.arc(n.x,n.y,15,0,Math.PI*2);ctx.fill()}
+    if(n.links.length>=2){
+      ctx.beginPath();ctx.arc(n.x,n.y,n.links.length>2?18:14,0,Math.PI*2);ctx.fill();
+    }
   }
   ctx.lineCap="butt";
-  ctx.strokeStyle=P.mark;ctx.globalAlpha=.5;ctx.lineWidth=1.3;ctx.setLineDash([9,9]);
+  ctx.strokeStyle=P.mark;ctx.globalAlpha=.5;ctx.lineWidth=1.4;ctx.setLineDash([10,10]);
   for(const e of edges){ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}
   ctx.setLineDash([]);ctx.globalAlpha=1;
   for(const e of edges){
     const w=e.road.wear;
     if(e.road.repair>0){
-      ctx.strokeStyle="#ff8c28";ctx.lineWidth=18;ctx.globalAlpha=.85;ctx.setLineDash([10,8]);
+      ctx.strokeStyle="#ff8c28";ctx.lineWidth=20;ctx.globalAlpha=.85;ctx.setLineDash([10,8]);
       ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
       ctx.setLineDash([]);ctx.globalAlpha=1;
     }else if(e.closed){
-      ctx.strokeStyle="#e9b23a";ctx.lineWidth=20;ctx.globalAlpha=.7;ctx.setLineDash([7,9]);
+      ctx.strokeStyle="#e9b23a";ctx.lineWidth=22;ctx.globalAlpha=.7;ctx.setLineDash([7,9]);
       ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
       ctx.setLineDash([]);ctx.globalAlpha=1;
     }else if(w>=20){
@@ -768,13 +790,16 @@ function drawBlocks(){
 function drawWear(){
   ctx.font='bold 13px -apple-system,"Hiragino Sans",sans-serif';ctx.textAlign="center";
   for(const r of roads){
-    if(!(mode==="repair"||r.wear>=40||r.repair>0))continue;
+    if(!(mode==="repair"||mode==="erase"||r.wear>=40||r.repair>0))continue;
     const i=Math.floor((r.length-1)/2);
     const x=(r[i].x+r[i+1].x)/2,y=(r[i].y+r[i+1].y)/2;
-    const txt=r.repair>0?"補修中 "+Math.ceil(r.repair)+"秒":"傷み "+Math.round(r.wear)+"%"+(mode==="repair"?" ¥"+Math.round(Math.max(80,r.cost*.4)):"");
+    let txt;
+    if(r.repair>0)txt="補修中 "+Math.ceil(r.repair)+"秒";
+    else if(mode==="erase")txt="削除 ¥+"+Math.round(r.cost*.6);
+    else txt="傷み "+Math.round(r.wear)+"%"+(mode==="repair"?" ¥"+Math.round(Math.max(80,r.cost*.4)):"");
     const tw=ctx.measureText(txt).width+14;
     ctx.fillStyle=P.ground;ctx.fillRect(x-tw/2,y-34,tw,20);
-    ctx.fillStyle=r.wear>=70||r.repair>0?"#d6453d":P.ink;
+    ctx.fillStyle=r.wear>=70||r.repair>0||mode==="erase"?"#d6453d":P.ink;
     ctx.fillText(txt,x,y-20);
   }
 }
@@ -794,30 +819,30 @@ function drawCar(c){
   if(!s)return;
   const x=lerp(s.from.x,s.to.x,c.t),y=lerp(s.from.y,s.to.y,c.t);
   ctx.save();
-  ctx.translate(x+Math.sin(c.ang)*5,y-Math.cos(c.ang)*5);
+  ctx.translate(x+Math.sin(c.ang)*6,y-Math.cos(c.ang)*6);
   ctx.rotate(c.ang);
   const l=c.len,w=c.w;
   if(rainI>.2){
     ctx.fillStyle="rgba(255,240,170,"+.14*rainI+")";
-    ctx.beginPath();ctx.moveTo(c.len/2,-c.w/2+1);ctx.lineTo(c.len/2+30,-c.w/2-7);ctx.lineTo(c.len/2+30,c.w/2+7);ctx.lineTo(c.len/2,c.w/2-1);ctx.closePath();ctx.fill();
+    ctx.beginPath();ctx.moveTo(c.len/2,-c.w/2+1);ctx.lineTo(c.len/2+34,-c.w/2-8);ctx.lineTo(c.len/2+34,c.w/2+8);ctx.lineTo(c.len/2,c.w/2-1);ctx.closePath();ctx.fill();
   }
-  ctx.fillStyle="rgba(0,0,0,.3)";ctx.fillRect(-l/2+1.5,-w/2+2.5,l,w);
+  ctx.fillStyle="rgba(0,0,0,.3)";ctx.fillRect(-l/2+2,-w/2+3,l,w);
   ctx.fillStyle=c.col;ctx.fillRect(-l/2,-w/2,l,w);
-  ctx.fillStyle="rgba(255,255,255,.22)";ctx.fillRect(-l/2,-w/2,l,2);
-  ctx.fillStyle="rgba(0,0,0,.25)";ctx.fillRect(-l/2,w/2-2,l,2);
+  ctx.fillStyle="rgba(255,255,255,.22)";ctx.fillRect(-l/2,-w/2,l,2.5);
+  ctx.fillStyle="rgba(0,0,0,.25)";ctx.fillRect(-l/2,w/2-2.5,l,2.5);
   ctx.fillStyle="#1c2a36";
   if(c.type==="t"){
-    ctx.fillRect(l/2-8,-w/2+1.2,6,w-2.4);
-    ctx.fillStyle="rgba(0,0,0,.18)";ctx.fillRect(-l/2+1,-w/2+1,l-11,w-2);
+    ctx.fillRect(l/2-10,-w/2+1.5,7,w-3);
+    ctx.fillStyle="rgba(0,0,0,.18)";ctx.fillRect(-l/2+1,-w/2+1,l-13,w-2);
   }else{
-    ctx.fillRect(-l*.02,-w/2+1.4,l*.24,w-2.8);
-    ctx.fillRect(-l*.38,-w/2+1.6,l*.12,w-3.2);
-    ctx.fillStyle="rgba(255,255,255,.18)";ctx.fillRect(-l*.26,-w/2+1.6,l*.24,w-3.2);
+    ctx.fillRect(-l*.02,-w/2+1.8,l*.26,w-3.6);
+    ctx.fillRect(-l*.38,-w/2+2,l*.13,w-4);
+    ctx.fillStyle="rgba(255,255,255,.18)";ctx.fillRect(-l*.26,-w/2+2,l*.26,w-4);
   }
   ctx.fillStyle=c.br?"#ff3b30":"#7a1f1a";
-  ctx.fillRect(-l/2,-w/2+1,1.8,2);ctx.fillRect(-l/2,w/2-3,1.8,2);
+  ctx.fillRect(-l/2,-w/2+1.5,2.2,2.5);ctx.fillRect(-l/2,w/2-4,2.2,2.5);
   ctx.fillStyle="#fff6c8";
-  ctx.fillRect(l/2-1.5,-w/2+1,1.5,2);ctx.fillRect(l/2-1.5,w/2-3,1.5,2);
+  ctx.fillRect(l/2-2,-w/2+1.5,2,2.5);ctx.fillRect(l/2-2,w/2-4,2,2.5);
   ctx.restore();
 }
 function draw(){
@@ -832,7 +857,7 @@ function draw(){
   drawMarker(GOAL,"ゴール","#2f6fa3");
   drawWeather();
   if(mode==="straight"&&firstPoint){
-    ctx.fillStyle=P.ink;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=P.ink;ctx.beginPath();ctx.arc(firstPoint.x,firstPoint.y,7,0,Math.PI*2);ctx.fill();
     if(hover){
       const end=snapPoint(hover),cost=dist(firstPoint,end),bad=cost>money||pathBlocked([firstPoint,end]);
       ctx.strokeStyle=bad?"#d6453d":P.ink;ctx.lineWidth=3;ctx.setLineDash([6,6]);
@@ -860,16 +885,20 @@ cv.addEventListener("pointerdown",e=>{
   hover=p;
   if(clearBlock(p))return;
   if(mode==="repair"){repairAt(p);return}
+  if(mode==="erase"){eraseAt(p);return}
   cv.setPointerCapture(e.pointerId);
   if(mode==="free"){drawing=true;stroke=[p];return}
-  if(firstPoint){commit(p);return}
+  if(firstPoint){
+    if(dist(firstPoint,p)<28){firstPoint=null;say("始点をキャンセル");return}
+    commit(p);return;
+  }
   firstPoint=snapPoint(p);
   dragging=true;
 });
 cv.addEventListener("pointermove",e=>{
   const p=screenPoint(e);
   hover=p;
-  if(drawing&&dist(stroke[stroke.length-1],p)>3)stroke.push(p);
+  if(drawing&&dist(stroke[stroke.length-1],p)>2.5)stroke.push(p);
 });
 function finish(e){
   if(drawing){
@@ -889,11 +918,12 @@ cv.addEventListener("pointercancel",finish);
 
 function setMode(m){
   mode=m;firstPoint=null;
-  for(const id of ["straight","free","repair"])$(id).classList.toggle("on",id===m);
+  for(const id of ["straight","free","repair","erase"])$(id).classList.toggle("on",id===m);
 }
 $("straight").onclick=()=>setMode("straight");
 $("free").onclick=()=>setMode("free");
 $("repair").onclick=()=>setMode("repair");
+$("erase").onclick=()=>setMode("erase");
 $("undo").onclick=()=>{
   const r=roads.pop();
   if(r)money+=r.cost;
